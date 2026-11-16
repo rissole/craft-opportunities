@@ -1,5 +1,17 @@
 package-as: CraftOpportunities
 
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+# CurseForge relations, by project slug.
+required-dependencies:
+  - skillup-forever
+optional-dependencies:
+  - tradeskill-master
+  - auctionator
+
 ignore:
+  - .github
   - .gitignore
   - .gitattributes

@@ -12,7 +12,8 @@ Recipes, reagents, learn requirements and each character's learned recipes come 
 - The WoW Forever client.
 - **SkillUp Forever v1.12.0 or later**, for its addon API for recipes and characters (`Recipes`, `Recipe`,
   `RecipeRequirement`, `Characters` and `Knows`), and **ForeverCore**, which SkillUp needs.
-- Optional: **TradeSkillMaster** or **Auctionator** for auction prices. With neither, only vendor prices are known.
+- Optional: **TradeSkillMaster** or **Auctionator** for auction prices, and for the vendor prices they have seen at
+  merchants. With neither, only what a vendor pays for a product is known, so most profits are missing.
 
 ## Install
 

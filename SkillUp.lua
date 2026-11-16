@@ -7,13 +7,9 @@ local _, Crafts = ...
 -- learned recipes SkillUp records for every character (Characters, Knows). Where a recipe item comes from is
 -- RecipeSources, when SkillUp has it.
 --
--- Compatibility: a SkillUp Forever build carrying the local SkillUpForever.API.Reol table (version 2 or later) is
--- used for whatever the public API does not have yet: those recipe members on an older SkillUp, recipe item sources
--- (RecipeItemSources, version 3), the vendor prices SkillUp knows, and its "Count what crafts sell for" setting.
--- Without it, vendor prices come from Auctionator or TSM, and the setting is read from SkillUp's saved settings.
---
--- The rest comes from the client: recipe names and icons, profession names and levels, this character's key, sell
--- prices, and when one of this character's own profession windows was completely recorded (OnScan).
+-- Vendor prices come from Auctionator or TSM, and SkillUp's "Count what crafts sell for" setting from its saved
+-- settings. The rest comes from the client: recipe names and icons, profession names and levels, this character's
+-- key, sell prices, and when one of this character's own profession windows was completely recorded (OnScan).
 local Source = {}
 Crafts.SkillUp = Source
 -- The first SkillUp Forever release with every public member below, for the "too old" message.
@@ -21,7 +17,6 @@ Source.MINIMUM = "v1.12.0"
 
 -- The public members this addon needs (SkillUp issue #724).
 local RECIPE_MEMBERS = {"Recipes", "Recipe", "RecipeRequirement", "Characters", "Knows"}
-local COMPAT_VERSION = 2
 -- The professions SkillUp's data has, to list each one's recipes without reading every recipe record. A recipe of any
 -- other skill line is found by reading its record.
 local SKILL_LINES = {129, 164, 165, 171, 182, 185, 186, 197, 202, 333, 356, 393, 755, 773}
@@ -46,23 +41,15 @@ local function HasPublic(api)
     return true
 end
 
-local function Compat(api)
-    local compat = api and api.Reol
-    if type(compat) == "table" and type(compat.version) == "number" and compat.version >= COMPAT_VERSION
-        and type(compat.Ready) == "function" then
-        return compat
-    end
-end
-
--- Resolved by Source.Open: `public` is the API when it has every recipe member, else nil and `compat` reads them.
-local public, compat
+-- SkillUp's API, set by Source.Open once it has every recipe member.
+local public
 
 local function Positive(value)
     if type(value) == "number" and value > 0 and value < math.huge then return value end
     return nil
 end
 
--- Recipe records (public API) ------------------------------------------------------------------------------------
+-- Recipe records ------------------------------------------------------------------------------------------------
 
 -- Every bundled recipe ID, sorted, and [recipeID] = skill line: read once, since SkillUp's bundle never changes in a
 -- session. Recipe records are cached weakly: the collector drops them while the window is closed.
@@ -106,7 +93,6 @@ local function NoNext() return nil end
 
 -- `for recipeID in Reader.Recipes() do`: every bundled recipe ID. Safe across frames: the list never changes.
 function Reader.Recipes()
-    if not public then return compat.Recipes() end
     local list, index = Index(), 0
     return function()
         index = index + 1
@@ -115,19 +101,16 @@ function Reader.Recipes()
 end
 
 function Reader.RecipeCount()
-    if not public then return compat.RecipeCount() end
     return #Index()
 end
 
 function Reader.RecipeProfession(recipeID)
-    if not public then return compat.RecipeProfession(recipeID) end
     local _, lines = Index()
     return lines[recipeID] or nil
 end
 
 -- itemID, mean yield, "item"; nil, nil, "none" for a recipe that makes no item; nil, nil, "unknown".
 function Reader.RecipeOutput(recipeID)
-    if not public then return compat.RecipeOutput(recipeID) end
     local record = Record(recipeID)
     if not record then return nil, nil, "unknown" end
     local output = record.output
@@ -139,13 +122,11 @@ function Reader.RecipeOutput(recipeID)
 end
 
 function Reader.ReagentCount(recipeID)
-    if not public then return compat.ReagentCount(recipeID) end
     local record = Record(recipeID)
     return record and type(record.reagents) == "table" and #record.reagents or 0
 end
 
 function Reader.Reagent(recipeID, index)
-    if not public then return compat.Reagent(recipeID, index) end
     local record = Record(recipeID)
     local reagent = record and type(record.reagents) == "table" and record.reagents[index]
     if type(reagent) == "table" then return reagent.itemID, reagent.quantity end
@@ -163,9 +144,8 @@ function Reader.Reagents(recipeID)
 end
 
 -- The required base skill (nil when unknown, never 0), its source ("trainer" or "item"), the recipe item that teaches
--- it, the trainer's fee, and where the requirement came from when SkillUp says ("seen", "bundled", "catalogue").
+-- it, and the trainer's fee.
 function Reader.RecipeRequirement(recipeID)
-    if not public then return compat.RecipeRequirement(recipeID) end
     local requirement = public.RecipeRequirement(recipeID)
     if type(requirement) ~= "table" then return nil end
     local source = (requirement.source == "trainer" or requirement.source == "item") and requirement.source or nil
@@ -188,18 +168,9 @@ end
 -- with first. Otherwise nil and why: "loading" (ask again shortly), "none", or "unavailable" when this SkillUp cannot
 -- say.
 function Reader.RecipeSources(recipeID)
-    local api = PublicAPI()
-    local found, reason
-    if api and type(api.RecipeSources) == "function" then
-        found, reason = api.RecipeSources(recipeID)
-    elseif compat and type(compat.RecipeItemSources) == "function" then
-        found, reason = compat.RecipeItemSources(recipeID)
-    else
-        return nil, "unavailable"
-    end
-    if type(found) ~= "table" then
-        return nil, (reason == "loading" or reason == "reading") and "loading" or "none"
-    end
+    if type(public.RecipeSources) ~= "function" then return nil, "unavailable" end
+    local found, reason = public.RecipeSources(recipeID)
+    if type(found) ~= "table" then return nil, reason == "loading" and "loading" or "none" end
     found.vendors = UsableFirst(type(found.vendors) == "table" and found.vendors or {})
     if type(found.quests) ~= "table" then found.quests = {} end
     if type(found.drops) ~= "table" then found.drops = {} end
@@ -225,7 +196,6 @@ function Reader.ProfessionName(skillLine)
         local entry = record.professions and record.professions[skillLine]
         if entry and type(entry.name) == "string" then return entry.name end
     end
-    if compat and type(compat.ProfessionName) == "function" then return compat.ProfessionName(skillLine) end
 end
 
 -- Characters ---------------------------------------------------------------------------------------------------------
@@ -251,7 +221,6 @@ end
 
 -- `for characterKey in Reader.Characters() do`: every "Name-Realm" SkillUp has learned-recipe records for.
 function Reader.Characters()
-    if not public then return compat.Characters() end
     local keys = public.Characters()
     if type(keys) ~= "table" then return NoNext end
     local index = 0
@@ -269,12 +238,9 @@ end
 
 -- What SkillUp recorded: true, false, or nil for a recipe it cannot answer for.
 local function Recorded(key, recipeID)
-    if public then
-        local knows = public.Knows(key, recipeID)
-        if knows == nil then return nil end
-        return knows == true
-    end
-    return compat.Knows(key, recipeID) == true
+    local knows = public.Knows(key, recipeID)
+    if knows == nil then return nil end
+    return knows == true
 end
 
 -- Whether a character knows a recipe, and how: "live" for this character (its spellbook or SkillUp's record),
@@ -288,7 +254,6 @@ end
 
 -- A fresh [skillLine] = recorded recipe count, for the professions SkillUp saw recipes of for a character.
 function Reader.KnownSkillLines(key)
-    if not public then return compat.KnownSkillLines(key) end
     local lines, ids, lineOfRecipe = {}, Index()
     for _, recipeID in ipairs(ids) do
         local skillLine = lineOfRecipe[recipeID]
@@ -319,11 +284,9 @@ end
 
 -- Prices -------------------------------------------------------------------------------------------------------------
 
--- What a vendor charges for one, and how that is known: "seen" at a merchant, or "bundled" in SkillUp's list. Without
--- SkillUp's list, what Auctionator saw at a merchant, else TSM's VendorBuy. Nil for an item no vendor is known to
--- sell.
+-- What a vendor charges for one, "seen": what Auctionator saw at a merchant, else TSM's VendorBuy. Nil for an item no
+-- vendor is known to sell.
 function Reader.VendorPrice(itemID)
-    if compat and type(compat.VendorPrice) == "function" then return compat.VendorPrice(itemID) end
     local auctionator = Auctionator and Auctionator.API and Auctionator.API.v1
     if auctionator and type(auctionator.GetVendorPriceByItemID) == "function" then
         local ok, price = pcall(auctionator.GetVendorPriceByItemID, Crafts.name or "CraftOpportunities", itemID)
@@ -336,20 +299,18 @@ function Reader.VendorPrice(itemID)
     return nil
 end
 
--- What a vendor pays for one: the client's sell price ("live"), else SkillUp's bundled one while the item loads.
+-- What a vendor pays for one, "live": the client's sell price. Nil while the item's data loads.
 function Reader.SellPrice(itemID)
     local sell = select(11, C_Item.GetItemInfo(itemID))
     if issecretvalue and issecretvalue(sell) then sell = nil end
     if type(sell) == "number" then return sell, "live" end
     C_Item.RequestLoadItemDataByID(itemID)
-    if compat and type(compat.SellPrice) == "function" then return compat.SellPrice(itemID) end
     return nil
 end
 
 -- SkillUp's "Count what crafts sell for" ("none", "vendor", "auction" or "sale") and its label; nil when it cannot
 -- be read. Read on every call, so a change in SkillUp's settings is seen on the next calculation.
 function Reader.CraftValue()
-    if compat and type(compat.CraftValue) == "function" then return compat.CraftValue() end
     local saved = type(SkillUpForeverDB) == "table" and SkillUpForeverDB.craftValue
     if CRAFT_VALUES[saved] then return saved, CRAFT_VALUES[saved] end
     return nil
@@ -357,27 +318,15 @@ end
 
 -- Opening ------------------------------------------------------------------------------------------------------------
 
--- Whether SkillUp's saved variables are loaded, so its answers can be trusted.
-local function Ready()
-    if public then return public.Characters() ~= nil end
-    return compat ~= nil and compat.Ready() == true
-end
-
--- The reader when SkillUp Forever can answer: Reader; otherwise nil and why: "skillup" (no SkillUp API), "old" (it
--- has neither the public recipe members nor the compatibility table) or "loading".
+-- The reader when SkillUp Forever can answer: Reader; otherwise nil and why: "skillup" (no SkillUp API), "old" (its
+-- API lacks the recipe members) or "loading" (its saved variables are still loading).
 function Source.Open()
     local api = PublicAPI()
     if not api then return nil, "skillup" end
-    public = HasPublic(api) and api or nil
-    compat = Compat(api)
-    if not (public or compat) then return nil, "old" end
-    if not Ready() then return nil, "loading" end
+    if not HasPublic(api) then return nil, "old" end
+    public = api
+    if public.Characters() == nil then return nil, "loading" end
     return Reader
-end
-
--- Which way the recipe data is read, for the status line: "api" or "compat".
-function Source.Mode()
-    return public and "api" or "compat"
 end
 
 -- Completed profession scans ------------------------------------------------------------------------------------------

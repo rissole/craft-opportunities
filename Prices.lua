@@ -64,13 +64,11 @@ local function AuctionatorAPI()
     return api and type(api.GetAuctionPriceByItemID) == "function" and api or nil
 end
 
--- A vendor's price for a material, and where it came from: what a merchant showed (reputation discounts included),
--- else SkillUp's bundled list.
+-- A vendor's price for a material, as a merchant showed it (reputation discounts included), and its source label.
 local function Vendor(reader, itemID)
-    local price, origin = reader.VendorPrice(itemID)
-    price = Positive(price)
+    local price = Positive((reader.VendorPrice(itemID)))
     if not price then return nil end
-    return price, origin == "seen" and "Vendor" or "Vendor list price"
+    return price, "Vendor"
 end
 
 -- TradeSkillMaster ----------------------------------------------------------------------------------------------

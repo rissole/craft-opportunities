@@ -617,12 +617,12 @@ local function RenderDetails()
     end
 
     local skillLine = reader.RecipeProfession(recipeID)
-    local skill, source, recipeItem, fee, origin = reader.RecipeRequirement(recipeID)
+    local skill, source, recipeItem, fee = reader.RecipeRequirement(recipeID)
     AddDetail("pair", "Profession", ProfessionName(skillLine))
     local where = source == "trainer" and "trainer" or (source == "item" and "recipe item" or "source unknown")
     AddDetail("pair", "Required skill", (skill and tostring(skill) or "Unknown") .. " (" .. where .. ")")
     if source == "trainer" then
-        local text = "Trainer" .. (origin == "seen" and ", as seen" or "")
+        local text = "Trainer"
         if type(fee) == "number" and fee > 0 then text = text .. "; fee " .. Money(fee) .. " not counted" end
         AddDetail("pair", "Recipe source", text)
     elseif source == "item" and not recipeItem then

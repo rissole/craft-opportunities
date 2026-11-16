@@ -1,0 +1,26 @@
+name: Release
+
+# Pushing a tag such as v2.6.0 packages the addon and uploads it to CurseForge (project 1810012, from the TOC's
+# X-Curse-Project-ID) and to a GitHub release. The tag is the version: the packager writes it into the TOC's
+# @project-version@. Needs the repository secret CF_API_KEY, a CurseForge API token.
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # the packager creates the GitHub release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: BigWigsMods/packager@01e8631a69c69d7654c788d152630d5fed9e3812 # v2.7.0
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
