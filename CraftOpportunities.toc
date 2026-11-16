@@ -3,6 +3,7 @@
 ## Notes: Profitable crafts across your characters, from SkillUp Forever's recipe data. Priced with TSM when installed, else the way SkillUp prices them.
 ## Author: rissole
 ## Version: 2.6.0
+## X-Website: https://github.com/rissole/craft-opportunities
 ## Dependencies: SkillUpForever
 ## OptionalDeps: TradeSkillMaster, Auctionator
 ## SavedVariables: CraftOpportunitiesDB
