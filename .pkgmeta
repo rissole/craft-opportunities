@@ -1,0 +1,5 @@
+package-as: CraftOpportunities
+
+ignore:
+  - .gitignore
+  - .gitattributes

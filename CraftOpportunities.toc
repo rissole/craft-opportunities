@@ -1,0 +1,18 @@
+## Interface: 16001
+## Title: Craft Opportunities
+## Notes: Profitable crafts across your characters, from SkillUp Forever's recipe data. Priced with TSM when installed, else the way SkillUp prices them.
+## Author: rissole
+## Version: 2.6.0
+## Dependencies: SkillUpForever
+## OptionalDeps: TradeSkillMaster, Auctionator
+## SavedVariables: CraftOpportunitiesDB
+## IconTexture: Interface\Icons\INV_Misc_Coin_02
+## AddonCompartmentFunc: CraftOpportunities_OnAddonCompartmentClick
+
+Crafts.xml
+Crafts.lua
+SkillUp.lua
+Prices.lua
+Calc.lua
+UI.lua
+Init.lua

@@ -1,0 +1,5 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ https://raw.githubusercontent.com/Gethe/wow-ui-source/live/Interface/AddOns/Blizzard_SharedXML/UI.xsd">
+	<!-- A Craft Opportunities list row. The scroll box pools frames by template name; UI.lua builds each row's
+	     contents the first time the pool hands it out, as SkillUp Forever's own lists do. -->
+	<Button name="CraftOpportunityRowTemplate" virtual="true"/>
+</Ui>
