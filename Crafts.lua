@@ -137,8 +137,8 @@ function Crafts:Dependencies()
         local version = C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("SkillUpForever", "Version") or "?"
         return nil, "old", "SkillUp Forever " .. version .. " is too old for Craft Opportunities.\n\nCraft "
             .. "Opportunities reads SkillUp's recipes and learned-recipe records through its addon API (Recipes, "
-            .. "Recipe, RecipeRequirement, Characters and Knows), which this version does not have yet. Update "
-            .. "SkillUp Forever, then restart the game."
+            .. "Recipe, RecipeRequirement, Characters and Knows), which needs SkillUp Forever "
+            .. Crafts.SkillUp.MINIMUM .. " or later. Update SkillUp Forever, then restart the game."
     end
     return nil, "loading", "SkillUp Forever is still loading its saved data. Try again in a moment."
 end

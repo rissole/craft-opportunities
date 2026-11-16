@@ -2,9 +2,10 @@ local _, Crafts = ...
 
 -- What Craft Opportunities reads from SkillUp Forever, behind one reader the rest of the addon uses.
 --
--- SkillUp Forever's public API (SkillUpForever.API, minor 7 or later) supplies the bundled recipes and reagents
--- (Recipes, Recipe), learn requirements (RecipeRequirement) and the learned recipes SkillUp records for every
--- character (Characters, Knows). Where a recipe item comes from is RecipeSources, when SkillUp has it.
+-- SkillUp Forever's public API (SkillUpForever.API, minor 7 or later, first released in SkillUp Forever v1.12.0)
+-- supplies the bundled recipes and reagents (Recipes, Recipe), learn requirements (RecipeRequirement) and the
+-- learned recipes SkillUp records for every character (Characters, Knows). Where a recipe item comes from is
+-- RecipeSources, when SkillUp has it.
 --
 -- Compatibility: a SkillUp Forever build carrying the local SkillUpForever.API.Reol table (version 2 or later) is
 -- used for whatever the public API does not have yet: those recipe members on an older SkillUp, recipe item sources
@@ -15,6 +16,8 @@ local _, Crafts = ...
 -- prices, and when one of this character's own profession windows was completely recorded (OnScan).
 local Source = {}
 Crafts.SkillUp = Source
+-- The first SkillUp Forever release with every public member below, for the "too old" message.
+Source.MINIMUM = "v1.12.0"
 
 -- The public members this addon needs (SkillUp issue #724).
 local RECIPE_MEMBERS = {"Recipes", "Recipe", "RecipeRequirement", "Characters", "Knows"}
