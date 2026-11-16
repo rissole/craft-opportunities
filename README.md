@@ -116,3 +116,7 @@ Neither TSM nor Auctionator signals new prices, so click **Refresh** after a sca
 - SkillUp keys characters by first name and realm, so two characters on one realm with the same first name share a
   record.
 - No crafting queue; the window has a fixed size.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
