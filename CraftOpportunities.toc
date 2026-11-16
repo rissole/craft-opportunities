@@ -1,5 +1,6 @@
 ## Interface: 16001
 ## Title: Craft Opportunities
+## Category: Professions
 ## Notes: Profitable crafts across your characters, from SkillUp Forever's recipe data. Priced with TSM when installed, else the way SkillUp prices them.
 ## Author: rissole
 ## Version: 2.6.0
