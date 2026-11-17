@@ -13,7 +13,9 @@ local LIST_WIDTH = WIDTH - 20 - DETAILS_WIDTH - 6
 local ROW_HEIGHT, COLUMN, RETURN_COLUMN, SCROLL_BAR = 38, 86, 56, 20
 local NAME_WIDTH = LIST_WIDTH - 4 - SCROLL_BAR - 41 - 3 * COLUMN - RETURN_COLUMN - 10
 local DETAIL_WIDTH = DETAILS_WIDTH - 8 - 26 - 4
-local BUDGET_MS, CACHE_SECONDS = 4, 300
+-- A calculation runs up to BUDGET_MS of each frame. Prices are kept for CACHE_SECONDS, also while the window is
+-- closed, unless Auctionator records a price meanwhile (WatchAuctionator).
+local BUDGET_MS, CACHE_SECONDS = 12, 300
 local ICON = "Interface\\Icons\\INV_Misc_Coin_02"
 local QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
 local PROFESSION_ICONS = {
@@ -38,9 +40,12 @@ local DISCLOSURE = "An estimate from current auction prices, not a guaranteed sa
 local frame, list, message, status, header, pricing, detailBody, searchBox, profitable
 local dropdowns = {}
 -- Temporary while the window is open, released when it closes: SkillUp's reader, the finished job whose rows are
--- shown, the job still calculating (shown once it finishes, so a refresh never blanks the list), the filtered view,
--- the price cache and the filter the view was drawn with.
+-- shown, the job still calculating (shown once it finishes, so a refresh never blanks the list), the filtered view
+-- and the filter the view was drawn with. The price cache outlives a close, so reopening only asks for prices again
+-- once they are old or have changed.
 local reader, job, work, view, cache, filter
+-- The Auctionator database being watched, and whether it has recorded a price since the cache was made.
+local watched, auctionChanged = nil, false
 local selected, searchText, paused = nil, "", false
 local restartAt, viewAt, redrawAt
 
@@ -855,8 +860,17 @@ local function RebuildView()
     UpdateStatus()
 end
 
+-- Auctionator records every price it sees, from scans and single searches alike, through Database:SetPrice.
+local function WatchAuctionator()
+    local db = Auctionator and Auctionator.Database
+    if db == watched or type(db) ~= "table" or type(db.SetPrice) ~= "function" then return end
+    watched = db
+    hooksecurefunc(db, "SetPrice", function() auctionChanged = true end)
+end
+
 local function Start(resetPrices)
     restartAt = nil
+    WatchAuctionator()
     local state, text
     reader, state, text = Crafts:Dependencies()
     if state ~= "ok" then
@@ -871,7 +885,11 @@ local function Start(resetPrices)
     end
     Crafts:UpdateCharacter()
     -- A cache only serves the pricing it was made for.
-    if resetPrices or not cache or cache.pricing.key ~= prices.key or GetTime() - cache.created > CACHE_SECONDS then
+    if resetPrices or auctionChanged or not cache or cache.pricing.key ~= prices.key
+        or GetTime() - cache.created > CACHE_SECONDS then
+        auctionChanged = false
+        -- A fresh cache also asks TSM to reread Auctionator's prices (Prices.RefreshAuctionator).
+        if prices.mode == "tsm" then Crafts.Prices.RefreshAuctionator() end
         cache = Calc.NewCache(prices)
     end
     local crafters = Crafts:Crafters(reader)
@@ -932,7 +950,7 @@ local function OnUpdate()
 end
 
 local function Release()
-    job, work, view, cache, reader, filter = nil, nil, nil, nil, nil, nil
+    job, work, view, reader, filter = nil, nil, nil, nil, nil
     restartAt, viewAt, redrawAt, paused = nil, nil, nil, false
     SetRows(nil)
     BeginDetails()

@@ -64,6 +64,23 @@ local function AuctionatorAPI()
     return api and type(api.GetAuctionPriceByItemID) == "function" and api or nil
 end
 
+-- TSM keeps each AtrValue it reads until Auctionator reports a database update, but Auctionator records the price
+-- from a single item search (its Shopping or Selling tab) without reporting one, so TSM keeps the old value. (A full
+-- scan or a shopping list search does report one.) This reports the update Auctionator skipped, through the event
+-- its RegisterForDBUpdate listens to. TSM then rereads AtrValue, including inside MatPrice and convert().
+function Prices.RefreshAuctionator()
+    local bus = Auctionator and Auctionator.EventBus
+    if not bus or type(bus.RegisterSource) ~= "function" then return end
+    local search, incremental = Auctionator.Search, Auctionator.IncrementalScan
+    local event = search and search.Events and search.Events.PricesProcessed
+        or incremental and incremental.Events and incremental.Events.PricesProcessed
+    if not event then return end
+    pcall(function()
+        bus:RegisterSource(Prices.RefreshAuctionator, "CraftOpportunities refresh"):Fire(Prices.RefreshAuctionator, event)
+    end)
+    pcall(bus.UnregisterSource, bus, Prices.RefreshAuctionator)
+end
+
 -- A vendor's price for a material, as a merchant showed it (reputation discounts included), and its source label.
 local function Vendor(reader, itemID)
     local price = Positive((reader.VendorPrice(itemID)))
@@ -131,25 +148,12 @@ local function TSMPlayerKeys()
     return (UnitName("player") or "") .. " - " .. factionrealm, factionrealm
 end
 
--- The craft value override TSM uses for one item, or nil for its Default craft value method. As TSM picks it: the
--- first Crafting operation on the item's group (ungrouped items have the base group's) that is not ignored for this
--- character or faction-realm, following a link of its craft value to another operation. Read from TSM's saved
--- settings for its active profile; nil whenever they cannot be read or the override cannot be used here.
-function Prices.TSMCraftOverride(itemID)
-    local db = type(TradeSkillMasterDB) == "table" and TradeSkillMasterDB or nil
-    if not db or type(TSM_API.GetActiveProfile) ~= "function" or type(TSM_API.GetGroupPathByItem) ~= "function" then
-        return nil
-    end
-    local okProfile, profile = pcall(TSM_API.GetActiveProfile)
-    local okPath, path = pcall(TSM_API.GetGroupPathByItem, "i:" .. itemID)
-    if not okProfile or type(profile) ~= "string" or not okPath then return nil end
-    local groups = db["p@" .. profile .. "@userData@groups"]
-    local operations = db["p@" .. profile .. "@userData@operations"]
-    local group = type(groups) == "table" and groups[path or ""]
+-- One group's craft value override, or nil for TSM's Default craft value method. As TSM picks it: the first
+-- Crafting operation on the group that is not ignored for this character or faction-realm, following a link of its
+-- craft value to another operation; nil when the override cannot be used here.
+local function GroupCraftOverride(group, operations, character, factionrealm)
     local assigned = type(group) == "table" and group.Crafting
-    operations = type(operations) == "table" and operations.Crafting
-    if type(assigned) ~= "table" or type(operations) ~= "table" then return nil end
-    local character, factionrealm = TSMPlayerKeys()
+    if type(assigned) ~= "table" then return nil end
     for _, name in ipairs(assigned) do
         local operation = operations[name]
         if type(operation) == "table"
@@ -167,6 +171,34 @@ function Prices.TSMCraftOverride(itemID)
         end
     end
     return nil
+end
+
+-- TSM's craft value overrides, read once per calculation from its saved settings for the active profile: a
+-- function from an item ID to the override for the item's group (ungrouped items have the base group's), or nil for
+-- the Default craft value method. Nil when the settings cannot be read or no group has an override, so most items
+-- never need their group looked up.
+function Prices.TSMCraftOverrides()
+    local db = type(TradeSkillMasterDB) == "table" and TradeSkillMasterDB or nil
+    if not db or type(TSM_API.GetActiveProfile) ~= "function" or type(TSM_API.GetGroupPathByItem) ~= "function" then
+        return nil
+    end
+    local okProfile, profile = pcall(TSM_API.GetActiveProfile)
+    if not okProfile or type(profile) ~= "string" then return nil end
+    local groups = db["p@" .. profile .. "@userData@groups"]
+    local operations = db["p@" .. profile .. "@userData@operations"]
+    operations = type(operations) == "table" and operations.Crafting
+    if type(groups) ~= "table" or type(operations) ~= "table" then return nil end
+    local character, factionrealm = TSMPlayerKeys()
+    local methods, any = {}, false
+    for path, group in pairs(groups) do
+        local method = GroupCraftOverride(group, operations, character, factionrealm)
+        if method then methods[path], any = method, true end
+    end
+    if not any then return nil end
+    return function(itemID)
+        local ok, path = pcall(TSM_API.GetGroupPathByItem, "i:" .. itemID)
+        return ok and methods[path or ""] or nil
+    end
 end
 
 -- Nil when the expression can be used for `kind` ("material" or "sale"), else why not.
@@ -211,7 +243,7 @@ end
 
 -- Following TSM's craft value, an item a Crafting operation overrides takes that operation's method.
 function TSM:Sale(_, itemID)
-    local expression = self.followCraftValue and Prices.TSMCraftOverride(itemID) or self.salePrice
+    local expression = self.overrides and self.overrides(itemID) or self.salePrice
     local value = Prices.TSMValue(expression, itemID)
     if value then return value, self.followCraftValue and "TSM craft value" or "TSM", 0 end
     return nil
@@ -349,6 +381,7 @@ function Prices.Current(saved, reader)
             materialFromTSM = materialFromTSM,
             followCraftValue = followCraftValue,
             vendorMaterials = saved.vendorMaterials,
+            overrides = followCraftValue and Prices.TSMCraftOverrides() or nil,
         }, TSM)
         snapshot.label = saved.saleVendor and "TSM, sold to a vendor"
             or followCraftValue and "TSM crafting cost and craft value"

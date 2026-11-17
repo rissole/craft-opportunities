@@ -1,5 +1,12 @@
 # Craft Opportunities
 
+## 2.6.1
+
+- With TradeSkillMaster, Refresh now picks up a price Auctionator recorded from a single item search. Before, TSM
+  kept the old Auctionator price until a full scan.
+- Calculating is faster: TSM's craft value overrides are read once per calculation, and more of each frame is used.
+- Reopening the window keeps prices from the last few minutes, unless Auctionator has recorded a new price since.
+
 ## 2.6.0
 
 First public release.
