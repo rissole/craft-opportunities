@@ -125,21 +125,13 @@ end
 
 -- Eligibility --------------------------------------------------------------------------------------------------
 
--- One character's state for one recipe, or nil when it does not have the profession. A recorded profession list is
--- authoritative, so a learned record left from a dropped profession does not count. Without one, only what SkillUp
--- recorded is known, and the rest of that profession is unknown.
-function Calc.State(reader, crafter, recipeID, skillLine, required)
-    local professions = crafter.professions
-    if professions then
-        local entry = professions[skillLine]
-        if not entry then return nil end
-        if reader.Knows(crafter.key, recipeID) then return Calc.KNOWN end
-        if not required then return Calc.UNKNOWN end
-        return entry.base >= required and Calc.MEETS or Calc.HIGHER
-    end
-    if reader.Knows(crafter.key, recipeID) then return Calc.KNOWN end
-    if crafter.observed and crafter.observed[skillLine] then return Calc.UNKNOWN end
-    return nil
+-- One character's state for one recipe, or nil when it does not have the profession.
+function Calc.State(crafter, recipeID, skillLine, required)
+    local entry = skillLine and crafter.professions[skillLine]
+    if not entry then return nil end
+    if Crafts.Knows(crafter, recipeID) then return Calc.KNOWN end
+    if not required then return Calc.UNKNOWN end
+    return entry.base >= required and Calc.MEETS or Calc.HIGHER
 end
 
 -- The job ---------------------------------------------------------------------------------------------------------
@@ -159,7 +151,7 @@ function Calc.NewJob(reader, cache, crafters)
             local best
             local required = reader.RecipeRequirement(recipeID)
             for index, crafter in ipairs(crafters) do
-                local state = Calc.State(reader, crafter, recipeID, skillLine, required)
+                local state = Calc.State(crafter, recipeID, skillLine, required)
                 digits[index] = state or 0
                 if state and (not best or state < best) then best = state end
             end
@@ -275,7 +267,7 @@ function Calc.CraftersText(job, row, crafterIndex)
     for index, crafter in ipairs(job.crafters) do
         local state = tonumber(row.states:sub(index, index))
         if state and state > 0 and (not crafterIndex or crafterIndex == 0 or crafterIndex == index) then
-            parts[#parts + 1] = crafter.name .. ": " .. Calc.STATE_SHORT[state]
+            parts[#parts + 1] = crafter.fullName .. ": " .. Calc.STATE_SHORT[state]
         end
     end
     return table.concat(parts, ", ")

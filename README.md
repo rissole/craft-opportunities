@@ -4,14 +4,15 @@ Craft Opportunities is a WoW Forever addon that shows which crafts make a profit
 covers the recipes each character knows, and the recipes it has the skill to learn. For each one it lists material
 cost, estimated sale proceeds, profit and return on materials.
 
-Recipes, reagents, learn requirements and each character's learned recipes come from
-[SkillUp Forever](https://github.com/cjber/skillup-forever). Prices come from TradeSkillMaster or Auctionator.
+Recipes, reagents and learn requirements come from [SkillUp Forever](https://github.com/cjber/skillup-forever).
+Craft Opportunities records each character's professions and learned recipes itself. Prices come from
+TradeSkillMaster or Auctionator.
 
 ## Requirements
 
 - The WoW Forever client.
-- **SkillUp Forever v1.12.0 or later**, for its addon API for recipes and characters (`Recipes`, `Recipe`,
-  `RecipeRequirement`, `Characters` and `Knows`), and **ForeverCore**, which SkillUp needs.
+- **SkillUp Forever v1.12.0 or later**, for its addon API for recipes (`Recipes`, `Recipe` and
+  `RecipeRequirement`), and **ForeverCore**, which SkillUp needs.
 - Optional: **TradeSkillMaster** or **Auctionator** for auction prices, and for the vendor prices they have seen at
   merchants. With neither, only what a vendor pays for a product is known, so most profits are missing.
 
@@ -19,8 +20,8 @@ Recipes, reagents, learn requirements and each character's learned recipes come 
 
 1. Extract the `CraftOpportunities` folder into `World of Warcraft\_forever_\Interface\AddOns`.
 2. Restart the game. A `/reload` does not pick up a new addon.
-3. Log in on each character once and open each of its professions. SkillUp Forever records the learned recipes, and
-   Craft Opportunities records the character's profession levels.
+3. Log in on each character once. Craft Opportunities records its professions, their levels and the recipes its
+   spellbook knows. Opening each profession once confirms that profession's recipes.
 
 ## Use
 
@@ -56,7 +57,7 @@ small window, selected and ready for Ctrl+C.
 
 | State | Meaning |
 | --- | --- |
-| Known | The character has learned it. This is live for the current character, and as SkillUp last recorded it for others. |
+| Known | The character has learned it. This is live for the current character, and as last recorded for others. |
 | Can learn | The character's base skill meets the recipe's trainer or recipe-item requirement. The recipe item, trainer, reputation or a specialisation may still be needed. |
 | Higher skill needed | The character has the profession, below the requirement. |
 | Not scanned / unknown | The requirement is unknown, or the character's profession levels were never recorded. |
@@ -81,17 +82,15 @@ As in TSM, no auction house cut is taken on top; a sale expression carries its o
 `* 0.95`). Pricing lets you set your own material and sale expressions, choose whether a cheaper vendor price
 replaces a material's TSM price, or value sales at `VendorSell`.
 
-**Without TSM**, prices follow SkillUp Forever's own rules. The auction price is Auctionator's latest scan, and a
-material costs the cheaper of a vendor's price and the auction price. What a product sells for follows SkillUp's
-*Count what crafts sell for* setting:
+**Without TSM**, the auction price is Auctionator's latest scan, and a material costs the cheaper of a vendor's price
+and the auction price. What a product sells for is chosen under **Pricing > Products sell for**:
 
-| SkillUp's setting | A product sells for |
+| Choice | A product sells for |
 | --- | --- |
-| Vendor sell price (the default) | its vendor sell price |
+| Vendor price (the default) | its vendor sell price |
 | Auction price if higher | its auction price less a 5% cut, or its vendor sell price if that is more |
-| Don't count it | nothing: the window explains instead of listing unpriced recipes |
 
-Change it in SkillUp Forever's settings, then click **Refresh**.
+*Auction price if higher* needs Auctionator; without it the choice cannot be picked, and vendor prices are used.
 
 In both modes, owned and gathered materials are priced as bought, never free. A missing price stays unknown, never 0.
 Recipes that make no item, or whose product is bind on pickup or a quest item, are not listed; the status line
@@ -102,9 +101,9 @@ SkillUp's mean yield.
 
 ## Storage
 
-Craft Opportunities saves only its settings and a little metadata for each character in `CraftOpportunitiesDB`:
-realm, faction, surname, profession levels and profession names, and when each profession window was last fully
-recorded. Recipes and learned recipes stay in SkillUp Forever, and prices in TSM or Auctionator.
+Craft Opportunities saves only its settings and a record for each character in `CraftOpportunitiesDB`, keyed by the
+character's GUID: name, surname, realm, faction, profession levels and names, the recipes it knows, and when each
+profession window was last fully recorded. Recipe data stays in SkillUp Forever, and prices in TSM or Auctionator.
 
 The calculation runs a few milliseconds per frame, pauses in combat, and releases everything when the window closes.
 Neither TSM nor Auctionator signals new prices, so click **Refresh** after a scan.
@@ -112,10 +111,8 @@ Neither TSM nor Auctionator signals new prices, so click **Refresh** after a sca
 ## Limitations
 
 - Prices are the current character's market only.
-- Another character's knowledge is as fresh as SkillUp's last record of it.
+- Another character's knowledge is as fresh as its last login.
 - Reputation, specialisations, limited vendor stock and whether a recipe item can be obtained are not checked.
-- SkillUp keys characters by first name and realm, so two characters on one realm with the same first name share a
-  record.
 - No crafting queue; the window has a fixed size.
 
 ## License

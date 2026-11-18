@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Craft Opportunities
 ## Category: Professions
-## Notes: Profitable crafts across your characters, from SkillUp Forever's recipe data. Priced with TSM when installed, else the way SkillUp prices them.
+## Notes: Profitable crafts across your characters, from SkillUp Forever's recipe data. Priced with TSM when installed, else with Auctionator.
 ## Author: rissole
 ## Version: @project-version@
 ## X-Website: https://github.com/rissole/craft-opportunities
@@ -16,6 +16,7 @@
 Crafts.xml
 Crafts.lua
 SkillUp.lua
+Characters.lua
 Prices.lua
 Calc.lua
 UI.lua

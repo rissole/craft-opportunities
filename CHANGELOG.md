@@ -1,5 +1,18 @@
 # Craft Opportunities
 
+## 3.0.0
+
+**After updating, log in on each of your characters once** so Craft Opportunities can record their professions and
+recipes again. Opening each profession once confirms its recipes. Character records from earlier versions are cleared.
+
+- Characters that share a first name are now told apart. Craft Opportunities now keeps its own record of each
+  character's professions and learned recipes, instead of reading SkillUp Forever's. SkillUp Forever still provides
+  the recipe data.
+- Characters always show by their full name, including in the row summaries.
+- Without TradeSkillMaster, you now choose what crafts sell for in the Pricing panel: *Vendor price* (the default) or
+  *Auction price if higher*, which needs Auctionator. SkillUp Forever's *Count what crafts sell for* setting is no
+  longer used.
+
 ## 2.6.1
 
 - With TradeSkillMaster, Refresh now picks up a price Auctionator recorded from a single item search. Before, TSM

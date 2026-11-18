@@ -7,17 +7,18 @@ local _, Crafts = ...
 --                at TSM's MatPrice (its material cost method), products at TSM's craft value for that item (a Crafting
 --                operation's override, else the Default craft value method). No auction house cut is ever taken: as in
 --                TSM, a sale expression carries its own (for example * 0.95).
---   Without TSM: prices follow SkillUp Forever's own rules (its Integrations/Prices.lua): Auctionator's latest buyout;
---                a material costs the cheaper of that and a vendor's price; what a product sells for follows SkillUp's
---                own "Count what crafts sell for" setting (SkillUp.lua's CraftValue).
+--   Without TSM: Auctionator's latest buyout; a material costs the cheaper of that and a vendor's price; a product
+--                sells for its vendor sell price, or (the Pricing choice, with Auctionator loaded) its auction price
+--                less the auction house cut when that is more.
 --
 -- Prices.Current picks one for each calculation and returns a snapshot of the settings it uses. Calc.lua asks the
 -- snapshot for prices; the window asks it what to say. Every snapshot has:
 --   Material(reader, itemID) -> copper, source          one unit of a material
 --   Sale(reader, itemID)     -> copper, source, cut     one unit of a product before the cut; the cut in percent
 --   Problem()             -> nil, or why it cannot price
---   Explain(), Note()     -> the Pricing panel's text
---   mode ("tsm" or "skillup"), label (the status line) and key (equal keys price identically, for the cache).
+--   Warning()             -> nil, or the Pricing panel's warning under its title
+--   Note()                -> the Pricing panel's closing note
+--   mode ("tsm" or "basic"), label (the status line) and key (equal keys price identically, for the cache).
 -- A missing price is nil, never 0. Owned and gathered materials are priced as bought in both, never free.
 local Prices = {}
 Crafts.Prices = Prices
@@ -37,8 +38,8 @@ Prices.SKILLUP_TSM = "first(DBRecent, DBMinBuyout, DBMarket)"
 Prices.SKILLUP_TSM_SALE = Prices.SKILLUP_TSM .. " * 0.95"
 -- The sale expression while the "Sell to a vendor" toggle is on.
 Prices.VENDOR_SALE = "VendorSell"
--- SkillUp's fixed auction house cut, in percent (without TSM only).
-Prices.SKILLUP_CUT = 5
+-- The auction house cut on an auction sale, in percent (without TSM only).
+Prices.AUCTION_CUT = 5
 
 Prices.VENDOR_OPTIONS = {
     {"cheaper", "Cheaper of vendor and TSM price"},
@@ -48,11 +49,6 @@ Prices.VENDOR_OPTIONS = {
 local function Positive(value)
     if type(value) == "number" and value > 0 and value < math.huge then return value end
     return nil
-end
-
--- 5 -> "5", 2.5 -> "2.5".
-function Prices.Percent(value)
-    return (string.format("%.2f", value):gsub("%.?0+$", ""))
 end
 
 function Prices.HasTSM()
@@ -257,41 +253,32 @@ function TSM:Problem()
         .. "\n\nOpen Pricing to change it."
 end
 
-function TSM:Explain()
-    local text = "TradeSkillMaster is installed, so everything is priced through TSM. "
-    if self.materialFromTSM then
-        text = text .. "The default material price is TSM's material cost, as in its Crafting Cost: MatPrice, else "
-            .. "TSM's Default material cost method (TSM Settings > Crafting). "
-    elseif self.origin == "auctionator" then
-        text = text .. "The default material price follows Auctionator through TSM's AtrValue source: "
-            .. Prices.AUCTIONATOR_MATERIAL .. ". "
-    else
-        text = text .. "TSM has no AtrValue source (Auctionator is not enabled), so the default material price is "
-            .. "SkillUp Forever's: " .. Prices.SKILLUP_TSM .. ". "
-    end
-    if self.saleVendor then
-        return text .. "Sell to a vendor is on: sales are valued at VendorSell."
-    end
-    if self.saleFromTSM then
-        return text .. "The default sale price is TSM's craft value, as in its profit: a Crafting operation's "
-            .. "override, else the Default craft value method (" .. self.defaultSale .. ")."
-    end
-    return text .. "The default sale price is " .. self.defaultSale .. "."
+function TSM:Warning()
+    return nil
 end
 
 function TSM:Note()
-    return "Prices are this character's realm and faction market. Sale proceeds are the sale price times the mean "
-        .. "yield. No auction house cut is taken, as in TSM's own profit, so a sale expression should take its own: "
-        .. "for example max(AtrValue * 0.95, VendorSell). An expression left at its default keeps following it."
+    return "Prices are for this character's realm and faction. Like TSM, Craft Opportunities doesn't take the auction "
+        .. "house cut for you, so if you write your own sale price, include it, e.g. max(AtrValue * 0.95, VendorSell)."
 end
 
--- SkillUp Forever's rules ---------------------------------------------------------------------------------------
+-- Without TradeSkillMaster ------------------------------------------------------------------------------------
 
-local SkillUp = {mode = "skillup"}
-SkillUp.__index = SkillUp
+-- What a product sells for without TSM: {id, label}. "auction" needs Auctionator; without it, "vendor" stands in.
+Prices.SALE_OPTIONS = {
+    {"vendor", "Vendor price"},
+    {"auction", "Auction price if higher"},
+}
 
--- Auctionator's latest recorded buyout, as SkillUp reads it.
-function SkillUp:Auction(itemID)
+function Prices.HasAuctionator()
+    return AuctionatorAPI() ~= nil
+end
+
+local Basic = {mode = "basic"}
+Basic.__index = Basic
+
+-- Auctionator's latest recorded buyout.
+function Basic:Auction(itemID)
     local api = AuctionatorAPI()
     if not api then return nil end
     local ok, value = pcall(api.GetAuctionPriceByItemID, Crafts.name or "CraftOpportunities", itemID)
@@ -299,7 +286,7 @@ function SkillUp:Auction(itemID)
 end
 
 -- The cheaper of a vendor's price and the auction price; on a tie, the vendor.
-function SkillUp:Material(reader, itemID)
+function Basic:Material(reader, itemID)
     local market = self:Auction(itemID)
     local vendor, source = Vendor(reader, itemID)
     if vendor and (not market or vendor <= market) then return vendor, source end
@@ -307,63 +294,45 @@ function SkillUp:Material(reader, itemID)
     return nil
 end
 
--- What a product sells for, by SkillUp's "Count what crafts sell for" (SkillUp's ItemValue): "vendor", its vendor
--- sell price; "auction", its auction price, which pays the 5% cut, or the vendor sell price, which pays none, when that
--- brings more; "sale" (SkillUp 1.10+), TSM's regional sale average, which this TSM-less snapshot never has, so the
--- vendor sell price, as SkillUp falls back to; "none", nothing, which Problem() reports instead.
-function SkillUp:Sale(reader, itemID)
-    if self.craftValue == "none" then return nil end
+-- "vendor": its vendor sell price. "auction": its auction price, which pays the cut, or the vendor sell price, which
+-- pays none, when that brings more.
+function Basic:Sale(reader, itemID)
     local sell = Positive((reader.SellPrice(itemID)))
-    local market = self.craftValue == "auction" and self:Auction(itemID) or nil
-    if market and (not sell or market * (1 - Prices.SKILLUP_CUT / 100) > sell) then
-        return market, "Auctionator", Prices.SKILLUP_CUT
+    local market = self.sale == "auction" and self:Auction(itemID) or nil
+    if market and (not sell or market * (1 - Prices.AUCTION_CUT / 100) > sell) then
+        return market, "Auctionator", Prices.AUCTION_CUT
     end
     if sell then return sell, "Vendor sell price", 0 end
     return nil
 end
 
--- With crafts counted as selling for nothing there is nothing to compare, so the window says why instead of listing
--- every recipe without a sale price.
-function SkillUp:Problem()
-    if self.craftValue ~= "none" then return nil end
-    return "SkillUp Forever is set not to count what crafts sell for (Count what crafts sell for: "
-        .. self.craftValueLabel .. ", in its Prices settings), so no sale can be estimated.\n\nChoose Vendor sell "
-        .. "price or Auction price if higher there, then click Refresh. With TradeSkillMaster installed, Craft "
-        .. "Opportunities prices sales through TSM instead."
+function Basic:Problem()
+    return nil
 end
 
--- What "Count what crafts sell for" means for a product under this snapshot.
-function SkillUp:SaleRule()
-    if self.craftValue == "auction" then
-        return "its auction price less the 5% auction house cut, or its vendor sell price when that is more"
+function Basic:Warning()
+    if self.source then return nil end
+    return "Neither TradeSkillMaster nor Auctionator is loaded, so materials have no price and only vendor sell prices "
+        .. "are known."
+end
+
+function Basic:Note()
+    return "Prices are this character's realm and faction market. Install TradeSkillMaster to price with TSM "
+        .. "expressions instead."
+end
+
+local function SaleLabel(id)
+    for _, option in ipairs(Prices.SALE_OPTIONS) do
+        if option[1] == id then return option[2] end
     end
-    if self.craftValue == "sale" then
-        return "its vendor sell price (the region sale average needs TradeSkillMaster)"
-    end
-    return "its vendor sell price"
-end
-
-function SkillUp:Explain()
-    local where = self.source and "Auctionator's latest scan"
-        or "nowhere: Auctionator is not loaded either, so only vendor prices are known"
-    return "TradeSkillMaster is not installed, so prices follow SkillUp Forever's own rules. Auction prices come from "
-        .. where .. ". A material costs the cheaper of a vendor's price and the auction price. What a product sells "
-        .. "for follows SkillUp's Count what crafts sell for setting (" .. self.craftValueLabel .. "): "
-        .. self:SaleRule() .. "."
-end
-
-function SkillUp:Note()
-    return "Prices are this character's realm and faction market. Change Count what crafts sell for in SkillUp "
-        .. "Forever's settings (Prices), then click Refresh. Install TradeSkillMaster to price with TSM expressions "
-        .. "instead."
+    return id
 end
 
 -- The pricing ---------------------------------------------------------------------------------------------------
 
--- The pricing for one calculation, chosen by whether TSM is installed: a fresh snapshot of the saved settings it uses
--- (for TSM) or of SkillUp's (without it; `reader` is SkillUp.lua's reader). A saved expression of "" follows the
--- current default.
-function Prices.Current(saved, reader)
+-- The pricing for one calculation, chosen by whether TSM is installed: a fresh snapshot of the saved settings it
+-- uses. A saved expression of "" follows the current default.
+function Prices.Current(saved)
     if Prices.HasTSM() then
         local material, sale, origin, saleFromTSM, materialFromTSM = Prices.DefaultExpressions()
         local saleDefault = not saved.saleVendor and saved.salePrice == ""
@@ -391,16 +360,12 @@ function Prices.Current(saved, reader)
         return snapshot
     end
     local source = AuctionatorAPI() and "Auctionator" or nil
-    -- SkillUp's own default, "vendor", while its setting cannot be read.
-    local craftValue, craftValueLabel
-    if reader and type(reader.CraftValue) == "function" then craftValue, craftValueLabel = reader.CraftValue() end
-    if not craftValue then craftValue, craftValueLabel = "vendor", "Vendor sell price" end
+    -- The saved choice is kept while Auctionator is not loaded, and vendor prices stand in.
+    local sale = source and saved.saleWithoutTSM == "auction" and "auction" or "vendor"
     return setmetatable({
         source = source,
-        craftValue = craftValue,
-        craftValueLabel = craftValueLabel or craftValue,
-        label = "SkillUp Forever's rules (" .. (source or "no TSM or Auctionator") .. "), crafts sell for: "
-            .. (craftValueLabel or craftValue),
-        key = table.concat({"skillup", tostring(source), craftValue}, "\031"),
-    }, SkillUp)
+        sale = sale,
+        label = (source or "No TSM or Auctionator") .. ", crafts sell for: " .. SaleLabel(sale):lower(),
+        key = table.concat({"basic", tostring(source), sale}, "\031"),
+    }, Basic)
 end

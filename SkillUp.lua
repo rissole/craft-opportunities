@@ -3,30 +3,22 @@ local _, Crafts = ...
 -- What Craft Opportunities reads from SkillUp Forever, behind one reader the rest of the addon uses.
 --
 -- SkillUp Forever's public API (SkillUpForever.API, minor 7 or later, first released in SkillUp Forever v1.12.0)
--- supplies the bundled recipes and reagents (Recipes, Recipe), learn requirements (RecipeRequirement) and the
--- learned recipes SkillUp records for every character (Characters, Knows). Where a recipe item comes from is
--- RecipeSources, when SkillUp has it.
+-- supplies the bundled recipes and reagents (Recipes, Recipe) and learn requirements (RecipeRequirement). Where a
+-- recipe item comes from is RecipeSources, when SkillUp has it. Which characters know which recipes is Craft
+-- Opportunities' own record (Characters.lua), not SkillUp's.
 --
--- Vendor prices come from Auctionator or TSM, and SkillUp's "Count what crafts sell for" setting from its saved
--- settings. The rest comes from the client: recipe names and icons, profession names and levels, this character's
--- key, sell prices, and when one of this character's own profession windows was completely recorded (OnScan).
+-- Vendor prices come from Auctionator or TSM. The rest comes from the client: recipe names and icons, profession
+-- names and sell prices.
 local Source = {}
 Crafts.SkillUp = Source
 -- The first SkillUp Forever release with every public member below, for the "too old" message.
 Source.MINIMUM = "v1.12.0"
 
 -- The public members this addon needs (SkillUp issue #724).
-local RECIPE_MEMBERS = {"Recipes", "Recipe", "RecipeRequirement", "Characters", "Knows"}
+local RECIPE_MEMBERS = {"Recipes", "Recipe", "RecipeRequirement"}
 -- The professions SkillUp's data has, to list each one's recipes without reading every recipe record. A recipe of any
 -- other skill line is found by reading its record.
 local SKILL_LINES = {129, 164, 165, 171, 182, 185, 186, 197, 202, 333, 356, 393, 755, 773}
--- SkillUp's "Count what crafts sell for" choices and their labels, as its Prices settings show them.
-local CRAFT_VALUES = {
-    none = "Don't count it",
-    vendor = "Vendor sell price",
-    auction = "Auction price if higher",
-    sale = "Region sale average if higher",
-}
 
 local function PublicAPI()
     local api = SkillUpForever and SkillUpForever.API
@@ -51,9 +43,10 @@ end
 
 -- Recipe records ------------------------------------------------------------------------------------------------
 
--- Every bundled recipe ID, sorted, and [recipeID] = skill line: read once, since SkillUp's bundle never changes in a
--- session. Recipe records are cached weakly: the collector drops them while the window is closed.
-local allRecipes, lineOf
+-- Every bundled recipe ID, sorted, [recipeID] = skill line, and [skillLine] = its recipe IDs, sorted: read once, since
+-- SkillUp's bundle never changes in a session. Recipe records are cached weakly: the collector drops them while the
+-- window is closed.
+local allRecipes, lineOf, byLine
 local records = setmetatable({}, {__mode = "v"})
 
 local function Record(recipeID)
@@ -68,9 +61,9 @@ end
 
 -- Built on first use, once SkillUp has loaded (Source.Open has checked).
 local function Index()
-    if allRecipes then return allRecipes, lineOf end
+    if allRecipes then return allRecipes, lineOf, byLine end
     local ids = public.Recipes() or {}
-    local lines = {}
+    local lines, lists = {}, {}
     for _, skillLine in ipairs(SKILL_LINES) do
         for _, recipeID in ipairs(public.Recipes(skillLine) or {}) do lines[recipeID] = skillLine end
     end
@@ -79,9 +72,14 @@ local function Index()
             local record = public.Recipe(recipeID)
             lines[recipeID] = type(record) == "table" and record.skillLineID or false
         end
+        local skillLine = lines[recipeID]
+        if skillLine then
+            lists[skillLine] = lists[skillLine] or {}
+            table.insert(lists[skillLine], recipeID)
+        end
     end
-    allRecipes, lineOf = ids, lines
-    return ids, lines
+    allRecipes, lineOf, byLine = ids, lines, lists
+    return ids, lines, lists
 end
 
 -- The reader ---------------------------------------------------------------------------------------------------------
@@ -89,7 +87,7 @@ end
 local Reader = {}
 Source.Reader = Reader
 
-local function NoNext() return nil end
+local NONE = {}
 
 -- `for recipeID in Reader.Recipes() do`: every bundled recipe ID. Safe across frames: the list never changes.
 function Reader.Recipes()
@@ -107,6 +105,12 @@ end
 function Reader.RecipeProfession(recipeID)
     local _, lines = Index()
     return lines[recipeID] or nil
+end
+
+-- One profession's bundled recipe IDs, sorted; read only.
+function Reader.ProfessionRecipes(skillLine)
+    local _, _, lists = Index()
+    return lists[skillLine] or NONE
 end
 
 -- itemID, mean yield, "item"; nil, nil, "none" for a recipe that makes no item; nil, nil, "unknown".
@@ -198,90 +202,6 @@ function Reader.ProfessionName(skillLine)
     end
 end
 
--- Characters ---------------------------------------------------------------------------------------------------------
-
--- This character's realm in the client's normalized form, as SkillUp keys its saved records.
-local function NormalizedRealm()
-    local realm = GetNormalizedRealmName and GetNormalizedRealmName()
-    if not realm or realm == "" then realm = ((GetRealmName() or ""):gsub("[%s%-]", "")) end
-    return realm ~= "" and realm or nil
-end
-
--- This character: SkillUp's "Name-Realm" key (first name only), name, normalized realm, English faction group. Nil
--- while the client has no name or realm yet; once it has, they cannot change within a session.
-local currentKey, currentName, currentRealm
-function Reader.CurrentCharacter()
-    if not currentKey then
-        local name, realm = UnitName("player"), NormalizedRealm()
-        if type(name) ~= "string" or name == "" or not realm then return nil end
-        currentKey, currentName, currentRealm = name .. "-" .. realm, name, realm
-    end
-    return currentKey, currentName, currentRealm, UnitFactionGroup("player")
-end
-
--- `for characterKey in Reader.Characters() do`: every "Name-Realm" SkillUp has learned-recipe records for.
-function Reader.Characters()
-    local keys = public.Characters()
-    if type(keys) ~= "table" then return NoNext end
-    local index = 0
-    return function()
-        index = index + 1
-        return keys[index]
-    end
-end
-
-local function IsSpellKnown(recipeID)
-    local book = C_SpellBook and C_SpellBook.IsSpellKnown
-    if book then return book(recipeID) == true end
-    return IsPlayerSpell ~= nil and IsPlayerSpell(recipeID) == true
-end
-
--- What SkillUp recorded: true, false, or nil for a recipe it cannot answer for.
-local function Recorded(key, recipeID)
-    local knows = public.Knows(key, recipeID)
-    if knows == nil then return nil end
-    return knows == true
-end
-
--- Whether a character knows a recipe, and how: "live" for this character (its spellbook or SkillUp's record),
--- "recorded" for another (what SkillUp saw when that character last had the profession open).
-function Reader.Knows(key, recipeID)
-    if key == (currentKey or Reader.CurrentCharacter()) then
-        return IsSpellKnown(recipeID) or Recorded(key, recipeID) == true, "live"
-    end
-    return Recorded(key, recipeID) == true, "recorded"
-end
-
--- A fresh [skillLine] = recorded recipe count, for the professions SkillUp saw recipes of for a character.
-function Reader.KnownSkillLines(key)
-    local lines, ids, lineOfRecipe = {}, Index()
-    for _, recipeID in ipairs(ids) do
-        local skillLine = lineOfRecipe[recipeID]
-        if skillLine and public.Knows(key, recipeID) == true then lines[skillLine] = (lines[skillLine] or 0) + 1 end
-    end
-    return lines
-end
-
--- This character's professions now, a fresh array sorted by skill line: {skillLine, name, icon, base, max,
--- modifier}. Empty is also the client's answer early in login, so it never confirms a profession was dropped.
-function Reader.LiveProfessions()
-    local list = {}
-    if not GetProfessions then return list end
-    local indexes = {GetProfessions()}
-    for i = 1, 6 do
-        local index = indexes[i]
-        if index then
-            local name, icon, rank, maxRank, _, _, skillLine, modifier = GetProfessionInfo(index)
-            if type(skillLine) == "number" and type(rank) == "number" then
-                list[#list + 1] = {skillLine = skillLine, name = name, icon = icon, base = rank, max = maxRank,
-                    modifier = modifier or 0}
-            end
-        end
-    end
-    table.sort(list, function(a, b) return a.skillLine < b.skillLine end)
-    return list
-end
-
 -- Prices -------------------------------------------------------------------------------------------------------------
 
 -- What a vendor charges for one, "seen": what Auctionator saw at a merchant, else TSM's VendorBuy. Nil for an item no
@@ -308,14 +228,6 @@ function Reader.SellPrice(itemID)
     return nil
 end
 
--- SkillUp's "Count what crafts sell for" ("none", "vendor", "auction" or "sale") and its label; nil when it cannot
--- be read. Read on every call, so a change in SkillUp's settings is seen on the next calculation.
-function Reader.CraftValue()
-    local saved = type(SkillUpForeverDB) == "table" and SkillUpForeverDB.craftValue
-    if CRAFT_VALUES[saved] then return saved, CRAFT_VALUES[saved] end
-    return nil
-end
-
 -- Opening ------------------------------------------------------------------------------------------------------------
 
 -- The reader when SkillUp Forever can answer: Reader; otherwise nil and why: "skillup" (no SkillUp API), "old" (its
@@ -325,125 +237,6 @@ function Source.Open()
     if not api then return nil, "skillup" end
     if not HasPublic(api) then return nil, "old" end
     public = api
-    if public.Characters() == nil then return nil, "loading" end
+    if public.Recipes() == nil then return nil, "loading" end
     return Reader
 end
-
--- Completed profession scans ------------------------------------------------------------------------------------------
-
--- A completed scan is this character's own profession window, ready, with SkillUp's record agreeing with every recipe
--- it lists. SkillUp writes that record a frame after the window's events, so a disagreement is retried up to
--- MAX_ATTEMPTS times. Linked, guild and NPC windows show someone else's recipes and are never reported.
-local scans, listeners = {}, {}
-local generation, attempts, windowOpen, pending = 0, 0, false, false
-local MAX_ATTEMPTS, RETRY_SECONDS, SETTLE_SECONDS = 10, 0.25, 0.5
-
-local function Notify(skillLine, scan, changed)
-    for _, callback in ipairs({unpack(listeners)}) do
-        xpcall(function()
-            callback(skillLine, scan.time, scan.recipes, scan.known, scan.base, changed)
-        end, geterrorhandler())
-    end
-end
-
--- Nil while the client is still filling the window.
-local function OwnWindow()
-    local T = C_TradeSkillUI
-    if (T.IsTradeSkillLinked and T.IsTradeSkillLinked()) or (T.IsTradeSkillGuild and T.IsTradeSkillGuild())
-        or (T.IsNPCCrafting and T.IsNPCCrafting()) then
-        return false
-    end
-    if (T.IsTradeSkillReady and not T.IsTradeSkillReady()) or (T.IsDataSourceChanging and T.IsDataSourceChanging()) then
-        return nil
-    end
-    return true
-end
-
-local Verify
-
-local function Retry(token)
-    attempts = attempts + 1
-    if attempts < MAX_ATTEMPTS then
-        C_Timer.After(RETRY_SECONDS, function() Verify(token) end)
-    end
-end
-
--- The open window's profession among this character's: its live entry, or nil.
-local function OpenProfession()
-    local base = C_TradeSkillUI.GetBaseProfessionInfo and C_TradeSkillUI.GetBaseProfessionInfo()
-    if not (base and base.professionID) then return nil end
-    for _, profession in ipairs(Reader.LiveProfessions()) do
-        if profession.skillLine == base.professionID or profession.name == base.professionName then
-            return profession
-        end
-    end
-    return false
-end
-
-function Verify(token)
-    if token ~= generation or not windowOpen or not Source.Open() then return end
-    local own = OwnWindow()
-    if own == false then return end
-    if own == nil or not C_TradeSkillUI.GetAllRecipeIDs then return Retry(token) end
-    local profession = OpenProfession()
-    if profession == nil then return Retry(token) end
-    local key = Reader.CurrentCharacter()
-    if not (profession and key) then return end
-    local recipeIDs = C_TradeSkillUI.GetAllRecipeIDs()
-    if type(recipeIDs) ~= "table" or #recipeIDs == 0 then return Retry(token) end
-    local known, sum = 0, 0
-    for _, recipeID in ipairs(recipeIDs) do
-        local info = C_TradeSkillUI.GetRecipeInfo(recipeID)
-        if not info then return Retry(token) end
-        local live = info.learned == true
-        local recorded = Recorded(key, recipeID)
-        if recorded ~= nil and recorded ~= live then return Retry(token) end
-        if live then
-            known = known + 1
-            sum = (sum + recipeID) % 2147483647
-        end
-    end
-    attempts = 0
-    local skillLine = profession.skillLine
-    local scan = {time = GetServerTime(), recipes = #recipeIDs, known = known, base = profession.base,
-        signature = known .. ":" .. sum}
-    local previous = scans[skillLine]
-    scans[skillLine] = scan
-    Notify(skillLine, scan, not previous or previous.signature ~= scan.signature or previous.base ~= scan.base)
-end
-
-local function Schedule()
-    generation = generation + 1
-    attempts = 0
-    local token = generation
-    C_Timer.After(SETTLE_SECONDS, function() Verify(token) end)
-end
-
--- Calls callback(skillLine, serverTime, recipes, known, base, changed) after each completed scan; `changed` is false
--- when the known recipes and skill match this session's previous scan of that profession.
-function Source.OnScan(callback)
-    listeners[#listeners + 1] = callback
-end
-
-local events = CreateFrame("Frame")
-for _, event in ipairs({"TRADE_SKILL_SHOW", "TRADE_SKILL_CLOSE", "TRADE_SKILL_LIST_UPDATE",
-    "TRADE_SKILL_DATA_SOURCE_CHANGED", "NEW_RECIPE_LEARNED"}) do
-    events:RegisterEvent(event)
-end
-events:SetScript("OnEvent", function(_, event)
-    if event == "TRADE_SKILL_CLOSE" then
-        windowOpen = false
-        generation = generation + 1
-        return
-    elseif event == "TRADE_SKILL_SHOW" then
-        windowOpen = true
-    end
-    -- One check a burst, half a second after its first event: the window sends many list updates while crafting.
-    if windowOpen and not pending then
-        pending = true
-        C_Timer.After(0, function()
-            pending = false
-            Schedule()
-        end)
-    end
-end)

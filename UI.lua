@@ -140,8 +140,7 @@ local function ProfessionName(skillLine)
     return skillLine and reader.ProfessionName(skillLine) or "Unknown profession"
 end
 
--- A character's full name (with the surname once recorded), and its realm when that is not this one. The rows' short
--- summaries use first names only, for room.
+-- A character's full name (with the surname once recorded), and its realm when that is not this one.
 local function CrafterLabel(crafter)
     if crafter.elsewhere and crafter.realm then return crafter.fullName .. " (" .. crafter.realm .. ")" end
     return crafter.fullName
@@ -214,7 +213,7 @@ end
 local function ListedProfessions()
     local lines, seen = {}, {}
     for _, crafter in ipairs(Crafters()) do
-        for skillLine in pairs(crafter.professions or crafter.observed or {}) do
+        for skillLine in pairs(crafter.professions) do
             if not seen[skillLine] then
                 seen[skillLine] = true
                 lines[#lines + 1] = skillLine
@@ -641,7 +640,7 @@ local function RenderDetails()
     for index, crafter in ipairs(job.crafters) do
         local state = tonumber(row.states:sub(index, index))
         if state and state > 0 then
-            local entry = crafter.professions and crafter.professions[skillLine]
+            local entry = crafter.professions[skillLine]
             local text = CrafterLabel(crafter) .. ": " .. Calc.STATE_LABEL[state]
             if state == Calc.KNOWN then
                 text = text .. (crafter.current and " (learned)" or " (learned, as recorded)")
@@ -892,10 +891,10 @@ local function Start(resetPrices)
         if prices.mode == "tsm" then Crafts.Prices.RefreshAuctionator() end
         cache = Calc.NewCache(prices)
     end
-    local crafters = Crafts:Crafters(reader)
+    local crafters = Crafts:Crafters()
     if #crafters == 0 then
-        ShowMessage("No characters to compare yet.\n\nLog in on each character and open its professions once "
-            .. "with SkillUp Forever enabled, so their recipes and skill are recorded.")
+        ShowMessage("No characters to compare yet.\n\nLog in on each character with Craft Opportunities enabled, "
+            .. "so its professions and recipes are recorded. Opening each profession once confirms its recipes.")
         return
     end
     work = Calc.NewJob(reader, cache, crafters)
@@ -960,13 +959,15 @@ end
 
 -- Pricing -------------------------------------------------------------------------------------------------------
 
--- The panel shows what the pricing in effect uses: TSM's expressions and vendor option only while TSM is
--- installed, and which characters are compared either way.
+-- The panel shows what the pricing in effect uses: TSM's expressions and vendor option while TSM is installed, the
+-- sale choice while it is not, and which characters are compared either way.
 local function LayoutPricing(tsmMode)
     local y = -4
     for _, row in ipairs(pricing.rows) do
         local control = row[1]
-        local shown = tsmMode or not row.tsm
+        local shown = (row.tsm and tsmMode) or (row.basic and not tsmMode) or not (row.tsm or row.basic)
+        -- An empty text row (no warning) takes no room.
+        if row.text and (control:GetText() or "") == "" then shown = false end
         control:SetShown(shown)
         if shown then
             control:ClearAllPoints()
@@ -985,6 +986,21 @@ local function ShowSaleField()
     pricing.Sale:ClearFocus()
 end
 
+-- Without TSM, the sale choice's radio buttons. Auction price needs Auctionator: without it the choice shows Vendor
+-- price and Auction price cannot be clicked, while a saved Auction price is kept for when Auctionator is back.
+local function ShowSaleRadios()
+    local auction = Prices.HasAuctionator()
+    local value = auction and pricing.saleWithoutTSM or "vendor"
+    for _, radio in ipairs(pricing.SaleRadios) do
+        local enabled = radio.value ~= "auction" or auction
+        radio:SetChecked(radio.value == value)
+        radio:SetEnabled(enabled)
+        radio:SetAlpha(enabled and 1 or 0.5)
+        radio.label:SetText(radio.text .. (enabled and "" or " (needs Auctionator)"))
+        radio.label:SetTextColor(enabled and 1 or 0.5, enabled and 1 or 0.5, enabled and 1 or 0.5)
+    end
+end
+
 -- Sell to a vendor applies at once: saved, recalculated, and the panel's text updated. Other unapplied edits stay.
 local function ToggleSaleVendor()
     -- Turning it on keeps the expression being edited, to show again when it is turned off.
@@ -992,7 +1008,7 @@ local function ToggleSaleVendor()
     Crafts.saved.saleVendor = pricing.SaleVendor:GetChecked() and true or false
     ShowSaleField()
     local prices = Crafts:Pricing()
-    pricing.Default:SetText(prices:Explain())
+    pricing.Default:SetText(prices:Warning() or "")
     LayoutPricing(true)
     Start(true)
 end
@@ -1001,7 +1017,7 @@ local function LoadPricing()
     local settings, prices = Crafts.saved, Crafts:Pricing()
     local tsmMode = prices.mode == "tsm"
     pricing.mode = prices.mode
-    pricing.Default:SetText(prices:Explain())
+    pricing.Default:SetText(prices:Warning() or "")
     if tsmMode then
         pricing.Material:SetText(prices.materialPrice)
         pricing.saleText = settings.salePrice ~= "" and settings.salePrice or select(2, Prices.DefaultExpressions())
@@ -1009,6 +1025,9 @@ local function LoadPricing()
         ShowSaleField()
         pricing.vendor = settings.vendorMaterials
         pricing.Vendor:GenerateMenu()
+    else
+        pricing.saleWithoutTSM = settings.saleWithoutTSM
+        ShowSaleRadios()
     end
     pricing.market = settings.market
     pricing.Market:GenerateMenu()
@@ -1037,6 +1056,8 @@ local function ApplyPricing()
         settings.materialPrice = material ~= defaultMaterial and material or ""
         settings.salePrice = sale ~= defaultSale and sale or ""
         settings.vendorMaterials = pricing.vendor
+    else
+        settings.saleWithoutTSM = pricing.saleWithoutTSM
     end
     settings.market = pricing.market
     pricing:Hide()
@@ -1051,6 +1072,9 @@ local function DefaultPricing()
         ShowSaleField()
         pricing.vendor = "cheaper"
         pricing.Vendor:GenerateMenu()
+    else
+        pricing.saleWithoutTSM = "vendor"
+        ShowSaleRadios()
     end
     pricing.market = "local"
     pricing.Market:GenerateMenu()
@@ -1096,6 +1120,22 @@ local function BuildPricing(parent, details)
                 function(value) pricing.vendor = value end)
         end
     end)
+    local saleWithoutTSMLabel = Label("Products sell for")
+    pricing.SaleRadios = {}
+    for _, option in ipairs(Prices.SALE_OPTIONS) do
+        local radio = CreateFrame("CheckButton", nil, pricing, "UIRadioButtonTemplate")
+        radio:SetSize(16, 16)
+        radio.value, radio.text = option[1], option[2]
+        radio.label = Text(radio, "GameFontHighlightSmall")
+        radio.label:SetPoint("LEFT", radio, "RIGHT", 4, 0)
+        -- The label takes the click too.
+        radio:SetHitRectInsets(0, -(width - 24), 0, 0)
+        radio:SetScript("OnClick", function(self)
+            pricing.saleWithoutTSM = self.value
+            ShowSaleRadios()
+        end)
+        pricing.SaleRadios[#pricing.SaleRadios + 1] = radio
+    end
     local marketLabel = Label("Compare characters on")
     pricing.Market = Dropdown(pricing, width, function(root)
         for _, option in ipairs(Crafts.MARKET_OPTIONS) do
@@ -1118,10 +1158,11 @@ local function BuildPricing(parent, details)
     pricing.Note = Text(pricing, "GameFontDisableSmall", width)
     pricing.Note:SetPoint("TOPLEFT", pricing.Error, "BOTTOMLEFT", 0, -8)
     pricing.Note:SetWordWrap(true)
-    -- Top to bottom: {control, height (nil: the text's own), x = indent, tsm = shown only while TSM prices}.
+    -- Top to bottom: {control, height (nil: the text's own), x = indent, tsm = shown only while TSM prices, basic =
+    -- shown only while it does not, text = hidden while empty}.
     pricing.rows = {
         {title, 28},
-        {pricing.Default},
+        {pricing.Default, text = true},
         {materialLabel, 18, tsm = true},
         {pricing.Material, 30, x = 6, tsm = true},
         {saleLabel, 18, tsm = true},
@@ -1129,6 +1170,9 @@ local function BuildPricing(parent, details)
         {pricing.SaleVendor, 28, tsm = true},
         {vendorLabel, 18, tsm = true},
         {pricing.Vendor, 34, tsm = true},
+        {saleWithoutTSMLabel, 20, basic = true},
+        {pricing.SaleRadios[1], 22, x = 6, basic = true},
+        {pricing.SaleRadios[2], 30, x = 6, basic = true},
         {marketLabel, 18},
         {pricing.Market, 36},
         {apply, 30},
