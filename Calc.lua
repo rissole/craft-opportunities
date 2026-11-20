@@ -174,7 +174,7 @@ end
 
 -- One row per recipe at least one crafter has a state for, built a slice at a time:
 -- {id, states (one digit per crafter, 0 for none), best, profit, cost, proceeds, ratio (Calc.Return), issue,
--- missing, itemClass (Calc.ItemClass)}. Names, icons and requirements stay in SkillUp's data and are read when a row
+-- missing, itemClass (Calc.ItemClass), sold, saleRate and saleAverage (Market.Get, nil without data)}. Names, icons and requirements stay in SkillUp's data and are read when a row
 -- is drawn. Recipes in Calc.EXCLUDED get no row;
 -- job.excluded counts them by issue.
 function Calc.NewJob(reader, cache, crafters)
@@ -197,10 +197,13 @@ function Calc.NewJob(reader, cache, crafters)
                     job.excluded[issue] = job.excluded[issue] + 1
                 else
                     local outputID, _, kind = reader.RecipeOutput(recipeID)
+                    local sold, saleRate, saleAverage
+                    if kind == "item" then sold, saleRate, saleAverage = Crafts.Market.Get(outputID) end
                     job.rows[#job.rows + 1] = {id = recipeID, states = table.concat(digits, "", 1, #crafters),
                         best = best, profit = profit, cost = cost, proceeds = proceeds,
                         ratio = Calc.Return(cost, proceeds), issue = issue, missing = missing,
-                        itemClass = Calc.ItemClass(kind == "item" and outputID or nil)}
+                        itemClass = Calc.ItemClass(kind == "item" and outputID or nil), sold = sold,
+                        saleRate = saleRate, saleAverage = saleAverage}
                 end
             end
             job.processed = job.processed + 1
@@ -251,6 +254,7 @@ end
 Calc.SORTS = {
     {"profit", "Estimated profit"},
     {"return", "Return (proceeds / materials)"},
+    {"sold", "Sold per day"},
 }
 
 -- True when a known value comes first; nil when it does not decide (equal, or both unknown).
@@ -276,23 +280,38 @@ local function ByReturn(a, b)
     if first ~= nil then return first end
     return ByProfit(a, b)
 end
+local function BySold(a, b)
+    local first = Higher(a.sold, b.sold)
+    if first ~= nil then return first end
+    return ByProfit(a, b)
+end
+local SORTERS = {profit = ByProfit, ["return"] = ByReturn, sold = BySold}
+
+-- Whether a row meets a minimum sold per day and sale rate. A row without data passes only minimums of 0.
+function Calc.SellsEnough(row, minSold, minRate)
+    if minSold > 0 and (row.sold or 0) < minSold then return false end
+    return minRate <= 0 or (row.saleRate or 0) >= minRate - 1e-9
+end
 
 -- The rows the filters let through, sorted, and how many rows of each item class the other filters let through
 -- ([classID] = count), whether that class is ticked or not. filter = {crafter (index, 0 for all), hiddenProfessions
 -- ([skillLine] = true for each unticked one), hiddenItemClasses ([classID] = true for each unticked one),
--- availability (option id), search (lower case, "" for none), profitableOnly, sort ("profit" or "return")}. Each
+-- availability (option id), search (lower case, "" for none), profitableOnly, minSold and minSaleRate (0 for none),
+-- sort (Calc.SORTS)}. Each
 -- row's `state` is set to the state shown for it under this filter.
 function Calc.View(reader, job, filter)
     local option = Calc.Availability(filter.availability)
     local low, high = option[3], option[4]
     local hiddenClasses = filter.hiddenItemClasses or {}
+    local minSold, minRate = filter.minSold or 0, filter.minSaleRate or 0
     local view, counts = {}, {}
     for _, row in ipairs(job.rows) do
         local state = Calc.RowState(row, filter.crafter)
         if state and state >= low and state <= high
             and not filter.hiddenProfessions[reader.RecipeProfession(row.id) or false]
             and (not filter.profitableOnly or (row.profit ~= nil and row.profit > 0))
-            and (filter.search == "" or Calc.Matches(reader, row.id, filter.search)) then
+            and (filter.search == "" or Calc.Matches(reader, row.id, filter.search))
+            and Calc.SellsEnough(row, minSold, minRate) then
             counts[row.itemClass] = (counts[row.itemClass] or 0) + 1
             if not hiddenClasses[row.itemClass] then
                 row.state = state
@@ -300,7 +319,7 @@ function Calc.View(reader, job, filter)
             end
         end
     end
-    table.sort(view, filter.sort == "return" and ByReturn or ByProfit)
+    table.sort(view, SORTERS[filter.sort] or ByProfit)
     return view, counts
 end
 

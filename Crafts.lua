@@ -64,6 +64,10 @@ function Crafts:Defaults()
         hiddenItemClasses = {},
         availability = "default",
         profitableOnly = false,
+        -- The Sales filter's minimum sold per day (a Market.SOLD_STEPS value) and sale rate (0 to 1), used only with
+        -- TSM and its sales data.
+        salesMinSold = 0,
+        salesMinRate = 0,
         -- "profit" or "return" (Calc.SORTS), chosen by clicking a column heading.
         sort = "profit",
         window = {},
@@ -93,6 +97,8 @@ function Crafts:OnInitialize(saved)
     if not valid(self.MARKET_OPTIONS, saved.market) then saved.market = defaults.market end
     if not valid(self.Calc.AVAILABILITY, saved.availability) then saved.availability = defaults.availability end
     if not valid(self.Calc.SORTS, saved.sort) then saved.sort = defaults.sort end
+    saved.salesMinSold = self.Market.SOLD_STEPS[self.Market.SoldStep(saved.salesMinSold)]
+    saved.salesMinRate = self.Market.SnapRate(saved.salesMinRate)
     for _, key in ipairs({"hiddenProfessions", "hiddenItemClasses"}) do
         local hidden = saved[key]
         for id, value in pairs(hidden) do

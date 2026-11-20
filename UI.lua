@@ -1,17 +1,30 @@
 local _, Crafts = ...
 local Calc = Crafts.Calc
 local Prices = Crafts.Prices
+local Market = Crafts.Market
 
 -- The Craft Opportunities window, in SkillUp Forever's native style: a portrait frame, inset panels, the game's own
 -- dropdowns and buttons, and a scroll box that draws only the rows on screen.
 
 local FRAME_NAME = "CraftOpportunitiesFrame"
 local ROW_TEMPLATE = "CraftOpportunityRowTemplate"
-local WIDTH, HEIGHT, DETAILS_WIDTH = 1016, 620, 330
-local LIST_WIDTH = WIDTH - 20 - DETAILS_WIDTH - 6
--- Money columns, then the narrower return column at the right.
-local ROW_HEIGHT, COLUMN, RETURN_COLUMN, SCROLL_BAR = 38, 86, 56, 20
-local NAME_WIDTH = LIST_WIDTH - 4 - SCROLL_BAR - 41 - 3 * COLUMN - RETURN_COLUMN - 10
+local HEIGHT, DETAILS_WIDTH = 620, 330
+-- Money columns, then the narrower return and sales columns at the right.
+local ROW_HEIGHT, COLUMN, RETURN_COLUMN, SALES_COLUMN, SCROLL_BAR = 38, 86, 56, 56, 20
+-- The sales filter's dropdown and the gap before it.
+local SALES_FILTER, SALES_GAP = 130, 8
+
+-- Fixed when the window is made (Layout). The sales features (Sales filter, Sold/day column) need TSM's region sales
+-- data: without it the window is as it was before them.
+local WIDTH, LIST_WIDTH, NAME_WIDTH, salesFilter, salesColumn
+local function Layout()
+    salesColumn = Market.Available()
+    salesFilter = salesColumn
+    WIDTH = 1016 + (salesFilter and SALES_FILTER + SALES_GAP or 0)
+    LIST_WIDTH = WIDTH - 20 - DETAILS_WIDTH - 6
+    NAME_WIDTH = LIST_WIDTH - 4 - SCROLL_BAR - 41 - 3 * COLUMN - RETURN_COLUMN - (salesColumn and SALES_COLUMN or 0)
+        - 10
+end
 local DETAIL_WIDTH = DETAILS_WIDTH - 8 - 26 - 4
 -- A calculation runs up to BUDGET_MS of each frame. Prices are kept for CACHE_SECONDS, also while the window is
 -- closed, unless Auctionator records a price meanwhile (WatchAuctionator).
@@ -33,10 +46,6 @@ local PROFESSION_ICONS = {
     [393] = "Interface\\Icons\\INV_Misc_Pelt_Wolf_01",
 }
 local STATE_COLORS = {{0.25, 0.85, 0.25}, {1, 0.82, 0}, {1, 0.5, 0.25}, {0.6, 0.6, 0.6}}
-local DISCLOSURE = "An estimate from current auction prices, not a guaranteed sale. Not counted: recipe and training "
-    .. "costs, auction deposits and relisting, and time to sell. Materials you own or gather are valued at their "
-    .. "price, never free."
-
 local frame, list, message, status, header, pricing, detailBody, searchBox, profitable
 local dropdowns = {}
 -- Temporary while the window is open, released when it closes: SkillUp's reader, the finished job whose rows are
@@ -107,6 +116,30 @@ end
 -- The profit as a percentage of the material cost: a 2.00x return is +100%.
 local function ProfitPercent(ratio)
     return string.format("%+.0f%%", (ratio - 1) * 100)
+end
+
+-- Sold per day: "none" (TSM has no record), "0", "<0.1", "1.4", "27", "7,130". The colours are fixed
+-- warning levels (Market.lua): red under 1 a day, yellow from 1, green from 10.
+local function SoldText(sold)
+    if type(sold) ~= "number" then return "|cffff5050none|r" end
+    local text
+    if sold == 0 then
+        text = "0"
+    elseif sold < 0.1 then
+        text = "<0.1"
+    elseif sold < 10 then
+        text = string.format("%.1f", sold)
+    else
+        local whole = math.floor(sold + 0.5)
+        text = BreakUpLargeNumbers and BreakUpLargeNumbers(whole) or tostring(whole)
+    end
+    local color = sold < 1 and "|cffff5050" or (sold < 10 and "|cffffd100" or "|cff40ff40")
+    return color .. text .. "|r"
+end
+
+local function RateText(rate)
+    if type(rate) ~= "number" then return "" end
+    return string.format("%d%%", math.floor(rate * 100 + 0.5))
 end
 
 local function ItemName(itemID)
@@ -441,12 +474,203 @@ local function StepItemClasses()
     ItemClassesChanged()
 end
 
+-- The sales filter -----------------------------------------------------------------------------------------------
+
+-- Two sliders in the Sales flyout: a minimum sold per day (Market.SOLD_STEPS) and a minimum sale rate. The list
+-- redraws as they move, and the flyout shows how many recipes are left.
+
+-- The flyout's slider frame, once it has been opened.
+local salesPanel
+
+local function SoldLabel(value)
+    if value <= 0 then return "Any" end
+    if value < 0.01 then return "Has sold" end
+    if value < 1 then return Number(value) .. "+ (1 per " .. Number(1 / value) .. " days)" end
+    return Number(value) .. "+"
+end
+
+local function RateLabel(rate)
+    if rate <= 0 then return "Any" end
+    return RateText(rate) .. "+ (<=" .. math.floor(1 / rate + 0.5) .. " posts per sale)"
+end
+
+-- The closed dropdown's text: "Any sales", "Has sold", "1+/day", "20%+ sell" or "1+/day, 20%+".
+local function SalesText()
+    local sold, rate = Crafts.saved.salesMinSold, Crafts.saved.salesMinRate
+    local parts = {}
+    if sold > 0 then parts[#parts + 1] = sold < 0.01 and "Has sold" or Number(sold) .. "+/day" end
+    if rate > 0 then parts[#parts + 1] = RateText(rate) .. "+" .. (sold > 0 and "" or " sell") end
+    return #parts > 0 and table.concat(parts, ", ") or "Any sales"
+end
+
+local function UpdateSalesText()
+    SetClosedText(dropdowns.sales, SalesText())
+end
+
+local function UpdateSalesPanel()
+    if not salesPanel then return end
+    salesPanel.SoldValue:SetText(SoldLabel(Crafts.saved.salesMinSold))
+    salesPanel.RateValue:SetText(RateLabel(Crafts.saved.salesMinRate))
+    salesPanel.Count:SetText(view and (#view .. " recipes shown") or "")
+end
+
+local function SalesChanged()
+    viewAt = GetTime() + 0.1
+    UpdateSalesText()
+    UpdateSalesPanel()
+end
+
+-- A slider of whole steps from min to max: the client's MinimalSliderWithSteppersTemplate, else the older
+-- OptionsSliderTemplate. onChange(step) runs on the user's moves only, not on Set.
+local function NewSlider(parent, onChange)
+    local slider
+    local function Changed(value)
+        if not slider.setting then onChange(math.floor(value + 0.5)) end
+    end
+    if MinimalSliderWithSteppersMixin then
+        slider = CreateFrame("Slider", nil, parent, "MinimalSliderWithSteppersTemplate")
+        slider:RegisterCallback(MinimalSliderWithSteppersMixin.Event.OnValueChanged, function(_, value) Changed(value) end,
+            parent)
+        function slider:Set(value, min, max)
+            self.setting = true
+            self:Init(value, min, max, max - min)
+            self.setting = nil
+        end
+    else
+        slider = CreateFrame("Slider", nil, parent, "OptionsSliderTemplate")
+        slider:SetValueStep(1)
+        slider:SetObeyStepOnDrag(true)
+        for _, key in ipairs({"Low", "High", "Text"}) do
+            if slider[key] then slider[key]:Hide() end
+        end
+        slider:SetScript("OnValueChanged", function(_, value) Changed(value) end)
+        function slider:Set(value, min, max)
+            self.setting = true
+            self:SetMinMaxValues(min, max)
+            self:SetValue(value)
+            self.setting = nil
+        end
+    end
+    slider:SetHeight(20)
+    return slider
+end
+
+local function BuildSalesPanel(panel)
+    local function Heading(title, y)
+        local label = Text(panel, "GameFontNormalSmall")
+        label:SetPoint("TOPLEFT", 8, y)
+        label:SetText(title)
+        local value = Text(panel, "GameFontHighlightSmall")
+        value:SetPoint("TOPRIGHT", -8, y)
+        value:SetJustifyH("RIGHT")
+        return value
+    end
+    local function Place(slider, y)
+        slider:SetPoint("TOPLEFT", 4, y)
+        slider:SetPoint("TOPRIGHT", -4, y)
+    end
+    panel.SoldValue = Heading("Sold per day (region)", -4)
+    panel.Sold = NewSlider(panel, function(step)
+        Crafts.saved.salesMinSold = Market.SOLD_STEPS[step] or 0
+        SalesChanged()
+    end)
+    Place(panel.Sold, -20)
+    panel.RateValue = Heading("Sale rate", -50)
+    panel.Rate = NewSlider(panel, function(step)
+        Crafts.saved.salesMinRate = Market.SnapRate(step * Market.RATE_STEP)
+        SalesChanged()
+    end)
+    Place(panel.Rate, -66)
+    panel.Count = Text(panel, "GameFontDisableSmall")
+    panel.Count:SetPoint("TOPLEFT", 8, -96)
+end
+
+-- The sliders live in a flyout of our own under the button, not in a Blizzard menu: the menu system did not show
+-- them. A click on the button toggles it; a click anywhere else, or closing the window, hides it.
+local SALES_PANEL_WIDTH, SALES_PANEL_HEIGHT, SALES_PANEL_INSET = 250, 112, 6
+local salesFlyout
+
+local function SyncSalesSliders()
+    if not (salesPanel and salesPanel.Sold) then return end
+    local saved = Crafts.saved
+    salesPanel.Sold:Set(Market.SoldStep(saved.salesMinSold), 1, #Market.SOLD_STEPS)
+    salesPanel.Rate:Set(math.floor(saved.salesMinRate / Market.RATE_STEP + 0.5), 0,
+        math.floor(Market.RATE_MAX / Market.RATE_STEP + 0.5))
+    UpdateSalesPanel()
+end
+
+local function BuildSalesFlyout(button)
+    local flyout = CreateFrame("Frame", nil, button, BackdropTemplateMixin and "BackdropTemplate" or nil)
+    flyout:SetFrameStrata("FULLSCREEN_DIALOG")
+    if flyout.SetFixedFrameStrata then flyout:SetFixedFrameStrata(true) end
+    flyout:SetClampedToScreen(true)
+    flyout:EnableMouse(true)
+    flyout:SetPoint("TOPLEFT", button, "BOTTOMLEFT", 0, -2)
+    if flyout.SetBackdrop then
+        flyout:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 16,
+            insets = {left = 4, right = 4, top = 4, bottom = 4},
+        })
+        flyout:SetBackdropColor(0.06, 0.06, 0.06, 0.95)
+        flyout:SetBackdropBorderColor(0.6, 0.6, 0.6, 1)
+    end
+    local content = CreateFrame("Frame", nil, flyout)
+    content:SetPoint("TOPLEFT", SALES_PANEL_INSET, -SALES_PANEL_INSET)
+    content:SetSize(SALES_PANEL_WIDTH, SALES_PANEL_HEIGHT)
+    BuildSalesPanel(content)
+    salesPanel = content
+    flyout:SetSize(content:GetWidth() + 2 * SALES_PANEL_INSET, content:GetHeight() + 2 * SALES_PANEL_INSET)
+    flyout:Hide()
+    flyout:SetScript("OnShow", function(self)
+        SyncSalesSliders()
+        self:RegisterEvent("GLOBAL_MOUSE_DOWN")
+    end)
+    flyout:SetScript("OnHide", function(self) self:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)
+    flyout:SetScript("OnEvent", function(self)
+        if not (self:IsMouseOver() or button:IsMouseOver()) then self:Hide() end
+    end)
+    return flyout
+end
+
+local function ToggleSalesFlyout(button)
+    salesFlyout = salesFlyout or BuildSalesFlyout(button)
+    salesFlyout:SetShown(not salesFlyout:IsShown())
+end
+
+-- The gamepad step: the next sold-per-day step, then back to any.
+local function StepSales()
+    if not salesColumn then return end
+    local steps = Market.SOLD_STEPS
+    Crafts.saved.salesMinSold = steps[Market.SoldStep(Crafts.saved.salesMinSold) % #steps + 1]
+    SalesChanged()
+    SyncSalesSliders()
+end
+
+-- The Sales button: a dropdown in looks, but a click opens the flyout (under the gamepad interface it steps).
+local function SalesButton(parent)
+    local dropdown = CreateFrame("DropdownButton", nil, parent, "WowStyle1DropdownTemplate")
+    dropdown:SetWidth(SALES_FILTER)
+    dropdown:SetupMenu(function(_, root) root:CreateTitle("Sales") end)
+    function dropdown:OpenMenu()
+        if not self:IsEnabled() then return end
+        if InputUtil and InputUtil.IsGamepadUIEnabled and InputUtil.IsGamepadUIEnabled() then return StepSales() end
+        ToggleSalesFlyout(self)
+    end
+    function dropdown:CloseMenu()
+        if salesFlyout then salesFlyout:Hide() end
+    end
+    return dropdown
+end
+
 local function RefreshMenus()
     for _, dropdown in pairs(dropdowns) do
         if dropdown.GenerateMenu then dropdown:GenerateMenu() end
     end
     UpdateProfessionsText()
     UpdateItemClassesText()
+    if dropdowns.sales then UpdateSalesText() end
 end
 
 -- Wowhead links -------------------------------------------------------------------------------------------------
@@ -730,6 +954,26 @@ local function RecipeItemDetails(recipeID, recipeItem)
     end
 end
 
+-- Sold per day and sale rate, each with a short reading: only with sales data (the Sold/day column).
+local function AddSales(row, outputID)
+    if not (salesColumn and outputID) then return end
+    AddDetail("heading", "Sales")
+    if row.sold == nil then
+        AddDetail("pair", "Sold per day (region)", SoldText(nil))
+    else
+        local reading = ""
+        if row.sold > 0 and row.sold < 1 then
+            reading = " (1 every " .. Number(math.floor(10 / row.sold + 0.5) / 10) .. " days)"
+        end
+        AddDetail("pair", "Sold per day (region)", SoldText(row.sold) .. reading)
+    end
+    if row.saleRate then
+        local reading = row.saleRate > 0 and row.saleRate < 0.67
+            and " (1 in " .. math.floor(1 / row.saleRate + 0.5) .. " posts)" or ""
+        AddDetail("pair", "Sale rate", RateText(row.saleRate) .. reading)
+    end
+end
+
 local function RenderDetails()
     if not detailBody then return end
     BeginDetails()
@@ -806,6 +1050,11 @@ local function RenderDetails()
         local unit, from, rate = Calc.SalePrice(reader, cache, outputID)
         AddDetail("pair", "Sale price each" .. (from and " (" .. from .. ")" or ""),
             unit and Money(unit) or "|cffff5050No price|r")
+        if salesColumn and row.saleAverage then
+            local low = unit and row.saleAverage < unit * Market.PRICE_FLAG
+            AddDetail("pair", "Region sale average", (low and "|cffff9933" or "") .. Money(row.saleAverage)
+                .. (low and "|r" or ""))
+        end
         AddDetail("pair", "Mean yield per craft", Number(quantity))
         if unit and rate > 0 then
             AddDetail("pair", "Auction house cut (" .. Number(rate) .. "%)", "-" .. Money(unit * quantity * rate / 100))
@@ -820,7 +1069,7 @@ local function RenderDetails()
     if row.ratio then
         AddDetail("pair", "Return on materials", Multiple(row.ratio) .. " (" .. ProfitPercent(row.ratio) .. ")")
     end
-    AddDetail("note", DISCLOSURE)
+    AddSales(row, outputID)
     FinishDetails()
 end
 
@@ -828,11 +1077,27 @@ end
 
 local function Cell(row, x, width)
     local cell = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    cell.x = x
     cell:SetPoint("RIGHT", row, "RIGHT", x, 0)
     cell:SetWidth((width or COLUMN) - 6)
     cell:SetJustifyH("RIGHT")
     cell:SetWordWrap(false)
     return cell
+end
+
+-- An orange warning line under a cell (Market's warning levels); the cell moves up while it shows.
+local function Flag(row, x, width)
+    local flag = Cell(row, x, width)
+    flag:SetPoint("RIGHT", row, "RIGHT", x, -8)
+    flag:SetTextColor(1, 0.6, 0.2)
+    flag:Hide()
+    return flag
+end
+
+local function SetFlag(cell, flag, text)
+    cell:SetPoint("RIGHT", cell:GetParent(), "RIGHT", cell.x, text and 6 or 0)
+    flag:SetText(text or "")
+    flag:SetShown(text ~= nil)
 end
 
 local function OnRowClick(row)
@@ -884,10 +1149,17 @@ local function BuildRow(row)
     row.Detail:SetPoint("BOTTOMLEFT", row.Icon, "BOTTOMRIGHT", 6, 1)
     row.Detail:SetWordWrap(false)
     row.Detail:SetTextColor(0.6, 0.6, 0.6)
-    row.Return = Cell(row, -6, RETURN_COLUMN)
-    row.Profit = Cell(row, -6 - RETURN_COLUMN)
-    row.Proceeds = Cell(row, -6 - RETURN_COLUMN - COLUMN)
-    row.Cost = Cell(row, -6 - RETURN_COLUMN - 2 * COLUMN)
+    local x = -6
+    if salesColumn then
+        row.Sold = Cell(row, x, SALES_COLUMN)
+        row.SoldFlag = Flag(row, x, SALES_COLUMN)
+        x = x - SALES_COLUMN
+    end
+    row.Return = Cell(row, x, RETURN_COLUMN)
+    row.Profit = Cell(row, x - RETURN_COLUMN)
+    row.Proceeds = Cell(row, x - RETURN_COLUMN - COLUMN)
+    if salesColumn then row.ProceedsFlag = Flag(row, x - RETURN_COLUMN - COLUMN) end
+    row.Cost = Cell(row, x - RETURN_COLUMN - 2 * COLUMN)
     row:RegisterForClicks("LeftButtonUp")
     row:SetScript("OnClick", OnRowClick)
     row:SetScript("OnEnter", OnRowEnter)
@@ -896,7 +1168,7 @@ end
 
 local function InitRow(row, data)
     if not row.Name then BuildRow(row) end
-    local title, outputID = RecipeTitle(data.id)
+    local title, outputID, quantity = RecipeTitle(data.id)
     row.recipeID, row.outputID = data.id, outputID
     row.Icon:SetTexture(outputID and ItemIcon(outputID) or reader.RecipeIcon(data.id) or QUESTION)
     row.Name:SetText(title)
@@ -910,6 +1182,20 @@ local function InitRow(row, data)
         or ("|cff999999" .. (Calc.ISSUE_TEXT[data.issue] or "-") .. "|r"))
     row.Profit:SetText(Signed(data.profit, true))
     row.Return:SetText(Multiple(data.ratio))
+    if row.Sold then
+        row.Sold:SetText(outputID and SoldText(data.sold) or "-")
+        local rate = data.saleRate
+        SetFlag(row.Sold, row.SoldFlag, data.sold and data.sold >= 1 and rate and rate < Market.RATE_FLAG
+            and (rate > 0 and "1 in " .. math.floor(1 / rate + 0.5) .. " sell" or "none sell") or nil)
+    end
+    if row.ProceedsFlag then
+        -- The region sale average as proceeds per craft, beside the proceeds it undercuts.
+        local unit, _, cut = nil, nil, 0
+        if outputID and data.saleAverage then unit, _, cut = Calc.SalePrice(reader, cache, outputID) end
+        local low = unit and data.saleAverage < unit * Market.PRICE_FLAG
+        SetFlag(row.Proceeds, row.ProceedsFlag, low
+            and "sold " .. Money(data.saleAverage * (quantity or 1) * (1 - cut / 100), true) or nil)
+    end
     row.Selected:SetShown(data.id == selected)
 end
 
@@ -919,11 +1205,18 @@ local function SetRows(rows)
     end
 end
 
--- The clickable column headings that sort the list. The one in use is white and underlined; the other is gold.
+-- The sort in use: the saved one, or profit when it is Sold/day and that column is not shown.
+local function SortKey()
+    local sort = Crafts.saved.sort
+    if sort == "sold" and not salesColumn then return "profit" end
+    return sort
+end
+
+-- The clickable column headings that sort the list. The one in use is white and underlined; the others are gold.
 local sortHeadings = {}
 local function UpdateSortHeadings()
     for _, button in ipairs(sortHeadings) do
-        local active = button.sortKey == Crafts.saved.sort
+        local active = button.sortKey == SortKey()
         if active then button.Label:SetTextColor(1, 1, 1) else button.Label:SetTextColor(1, 0.82, 0) end
         button.Underline:SetShown(active)
     end
@@ -967,7 +1260,10 @@ local function CurrentFilter()
     end
     return {crafter = index, hiddenProfessions = settings.hiddenProfessions,
         hiddenItemClasses = settings.hiddenItemClasses, availability = settings.availability, search = searchText,
-        profitableOnly = settings.profitableOnly, sort = settings.sort}
+        profitableOnly = settings.profitableOnly, sort = SortKey(),
+        -- Without sales data no row could pass a minimum, so the filter waits for data.
+        minSold = salesColumn and settings.salesMinSold or 0,
+        minSaleRate = salesColumn and settings.salesMinRate or 0}
 end
 
 local function RebuildView()
@@ -975,6 +1271,7 @@ local function RebuildView()
     if not job then return end
     filter = CurrentFilter()
     view, classCounts = Calc.View(reader, job, filter)
+    UpdateSalesPanel()
     SetRows(view)
     if not FindRow(selected) then selected = view[1] and view[1].id or nil end
     local classesShown, classesListed = ItemClassCounts()
@@ -990,7 +1287,8 @@ local function RebuildView()
         message:SetText("Nothing matches these filters.\n\nThe default lists recipes a character knows or meets "
             .. "the skill requirement for. Choose Everything under availability to include recipes that need more "
             .. "skill or whose status is unknown."
-            .. (classesShown < classesListed and " Item types you have unticked are hidden too." or ""))
+            .. (classesShown < classesListed and " Item types you have unticked are hidden too." or "")
+            .. ((filter.minSold > 0 or filter.minSaleRate > 0) and " The Sales filter is on too." or ""))
         message:Show()
     else
         message:Hide()
@@ -1096,6 +1394,7 @@ local function Release()
     BeginDetails()
     FinishDetails()
     if pricing then pricing:Hide() end
+    if salesFlyout then salesFlyout:Hide() end
 end
 
 -- Pricing -------------------------------------------------------------------------------------------------------
@@ -1332,6 +1631,7 @@ end
 local function Create()
     frame = CreateFrame("Frame", FRAME_NAME, UIParent, "PortraitFrameTemplate")
     table.insert(UISpecialFrames, FRAME_NAME)
+    Layout()
     frame:SetSize(WIDTH, HEIGHT)
     local position = Crafts.saved.window
     frame:SetPoint("CENTER", UIParent, "CENTER", tonumber(position.x) or 0, tonumber(position.y) or 0)
@@ -1374,9 +1674,18 @@ local function Create()
         for _, option in ipairs(Calc.AVAILABILITY) do Radio(root, option[2], option[1], get, set) end
     end)
     dropdowns.availability:SetPoint("LEFT", dropdowns.itemClass, "RIGHT", 8, 0)
+    -- Left to right: who and what, whether it can be made, whether it is worth making (Sales with TSM, then
+    -- Profitable only), and the search at the right end.
+    local beforeProfitable = dropdowns.availability
+    if salesFilter then
+        dropdowns.sales = SalesButton(frame)
+        dropdowns.sales:SetPoint("LEFT", dropdowns.availability, "RIGHT", SALES_GAP, 0)
+        UpdateSalesText()
+        beforeProfitable = dropdowns.sales
+    end
 
     searchBox = Edit(frame, 120)
-    searchBox:SetPoint("LEFT", dropdowns.availability, "RIGHT", 18, 0)
+    searchBox:SetPoint("RIGHT", frame, "TOPRIGHT", -16, -32 - dropdowns.character:GetHeight() / 2)
     local hint = Text(searchBox, "GameFontDisableSmall")
     hint:SetPoint("LEFT", 0, 0)
     hint:SetText("Search")
@@ -1390,7 +1699,7 @@ local function Create()
 
     profitable = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
     profitable:SetSize(24, 24)
-    profitable:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
+    profitable:SetPoint("LEFT", beforeProfitable, "RIGHT", 10, 0)
     profitable:SetScript("OnClick", function(self)
         Crafts.saved.profitableOnly, viewAt = self:GetChecked() and true or false, 0
     end)
@@ -1427,6 +1736,16 @@ local function Create()
         {"Est. proceeds", COLUMN},
         {"Materials", COLUMN},
     }
+    if salesColumn then
+        table.insert(columns, 1, {"Sold/day", SALES_COLUMN, "sold", "Sort by sold per day (TSM region), highest "
+            .. "first.\n\nRed under 1, yellow 1+, green 10+. None: no TSM record.\nOrange below: 1 in N postings "
+            .. "sell, when under 20% at 1+ a day."})
+        for _, column in ipairs(columns) do
+            if column[1] == "Est. proceeds" then
+                column[4] = "Orange below: region sale average per craft, when under 75% of the sale price."
+            end
+        end
+    end
     local x = -6
     for _, column in ipairs(columns) do
         local title, width, sort, tip = column[1], column[2], column[3], column[4]
@@ -1458,6 +1777,19 @@ local function Create()
         else
             heading = Text(header, "GameFontNormalSmall", width - 6)
             heading:SetPoint("RIGHT", x, 0)
+            if tip then
+                local hover = CreateFrame("Frame", nil, header)
+                hover:SetSize(width - 6, 18)
+                hover:SetPoint("RIGHT", x, 0)
+                hover:EnableMouse(true)
+                hover:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                    GameTooltip:SetText(title, 1, 0.82, 0)
+                    GameTooltip:AddLine(tip, 1, 1, 1, true)
+                    GameTooltip:Show()
+                end)
+                hover:SetScript("OnLeave", GameTooltip_Hide)
+            end
         end
         heading:SetJustifyH("RIGHT")
         heading:SetText(title)

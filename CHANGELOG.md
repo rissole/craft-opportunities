@@ -1,5 +1,12 @@
 # Craft Opportunities
 
+## 3.2.0
+
+Needs TSM's region data (TSM desktop app); without it nothing changes.
+
+- **Sold/day** column (TSM region sold per day), sortable.
+- **Sales** filter: sliders for minimum sold per day and sale rate, with the count left.
+
 ## 3.1.0
 
 - New **Item type** filter: tick which kinds of product to list, by the auction house's categories (Weapon, Armor,

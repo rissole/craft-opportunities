@@ -33,8 +33,12 @@ Open the window with `/craftops` or `/cops`, or from the minimap's addon compart
 | Est. proceeds | sale price x mean yield per craft |
 | Est. profit | proceeds - materials |
 | Return | proceeds / materials: 2.00x means a profit of 100% of the cost |
+| Sold/day | TSM: region sold per day ([sales data](#sales-data)) |
 
-Click **Est. profit** or **Return** to sort by it. Recipes without a full price come last.
+With TSM sales data, orange lines flag two risks: under Est. proceeds, the region sale average per craft when it is
+under 75% of the sale price; under Sold/day, "1 in N sell" when the sale rate is under 20% at 1+ a day.
+
+Click **Est. profit**, **Return** or **Sold/day** to sort by it. Recipes without a full price come last.
 
 Filters:
 
@@ -46,8 +50,10 @@ Filters:
   filter reads *No gear*.
 - **Availability**: *Known or can learn* (the default), known only, can learn only, also higher skill needed, or
   everything.
-- **Search**: the recipe name or the product's name.
+- **Sales** (TSM): sliders for a minimum sold per day (has sold, 0.25 up to 100) and sale rate (5% to 60%); the menu
+  shows how many recipes are left. [Sales data](#sales-data).
 - **Profitable only**.
+- **Search** (right end): the recipe name or the product's name.
 
 Select a row for details: the product, its item type and mean yield, the required skill and where the recipe is learned, each
 character's state, every material with its unit price and source, and the sale assumptions. When SkillUp Forever
@@ -103,11 +109,20 @@ counts them.
 Not counted: recipe and training costs, auction deposits and relisting, undercutting, and time to sell. Yields are
 SkillUp's mean yield.
 
+## Sales data
+
+From TSM's `DBRegionSoldPerDay`, `DBRegionSaleRate` and `DBRegionSaleAvg` (TSM desktop app). Without them the
+window has no sales column or filter.
+
+- **Sold per day** (column, filter): region-wide. Red under 1, yellow 1+, green 10+.
+- **Sale rate** (filter, details, flag): share of postings that sell, e.g. 25% (1 in 4 posts).
+- **Region sale average** (details, flag): what buyers paid.
+
 ## Storage
 
 Craft Opportunities saves only its settings and a record for each character in `CraftOpportunitiesDB`, keyed by the
 character's GUID: name, surname, realm, faction, profession levels and names, the recipes it knows, and when each
-profession window was last fully recorded. Recipe data stays in SkillUp Forever, and prices in TSM or Auctionator.
+profession window was last fully recorded. Recipe data stays in SkillUp Forever, and prices and sales data in TSM or Auctionator.
 
 The calculation runs a few milliseconds per frame, pauses in combat, and releases everything when the window closes.
 Neither TSM nor Auctionator signals new prices, so click **Refresh** after a scan.

@@ -18,6 +18,7 @@ Crafts.lua
 SkillUp.lua
 Characters.lua
 Prices.lua
+Market.lua
 Calc.lua
 UI.lua
 Init.lua
