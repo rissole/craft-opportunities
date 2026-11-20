@@ -60,6 +60,8 @@ function Crafts:Defaults()
         -- The profession filter's unticked professions, [skillLine] = true. Holding the unticked ones means a
         -- profession learned later shows until it is unticked.
         hiddenProfessions = {},
+        -- The item type filter's unticked item classes, [classID] = true (Calc.ItemClass), the same way.
+        hiddenItemClasses = {},
         availability = "default",
         profitableOnly = false,
         -- "profit" or "return" (Calc.SORTS), chosen by clicking a column heading.
@@ -91,8 +93,11 @@ function Crafts:OnInitialize(saved)
     if not valid(self.MARKET_OPTIONS, saved.market) then saved.market = defaults.market end
     if not valid(self.Calc.AVAILABILITY, saved.availability) then saved.availability = defaults.availability end
     if not valid(self.Calc.SORTS, saved.sort) then saved.sort = defaults.sort end
-    for skillLine, value in pairs(saved.hiddenProfessions) do
-        if type(skillLine) ~= "number" or value ~= true then saved.hiddenProfessions[skillLine] = nil end
+    for _, key in ipairs({"hiddenProfessions", "hiddenItemClasses"}) do
+        local hidden = saved[key]
+        for id, value in pairs(hidden) do
+            if type(id) ~= "number" or value ~= true then hidden[id] = nil end
+        end
     end
     -- A blank expression follows the defaults.
     for _, key in ipairs({"materialPrice", "salePrice"}) do

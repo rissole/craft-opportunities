@@ -1,5 +1,12 @@
 # Craft Opportunities
 
+## 3.1.0
+
+- New **Item type** filter: tick which kinds of product to list, by the auction house's categories (Weapon, Armor,
+  Container, Consumable, Trade Goods and so on). Each type shows how many recipes it holds under the other filters.
+  Untick Weapon and Armor to hide gear, whose listed prices it rarely sells for; the filter then reads *No gear*.
+- A recipe's details show its product's item type, such as *Armor · Cloth* or *Container · Bag*.
+
 ## 3.0.0
 
 **After updating, log in on each of your characters once** so Craft Opportunities can record their professions and

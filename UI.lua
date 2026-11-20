@@ -243,10 +243,13 @@ local function ProfessionsText()
     return shown .. " professions"
 end
 
-local function UpdateProfessionsText()
-    local dropdown = dropdowns.profession
+local function SetClosedText(dropdown, text)
     if not dropdown then return end
-    if dropdown.OverrideText then dropdown:OverrideText(ProfessionsText()) else dropdown:SetText(ProfessionsText()) end
+    if dropdown.OverrideText then dropdown:OverrideText(text) else dropdown:SetText(text) end
+end
+
+local function UpdateProfessionsText()
+    SetClosedText(dropdowns.profession, ProfessionsText())
 end
 
 -- After any change: redraw the list, relabel the dropdown, and keep an open menu open with its ticks redrawn.
@@ -310,11 +313,140 @@ local function StepProfessions()
     ProfessionsChanged()
 end
 
+-- The item type filter -------------------------------------------------------------------------------------------
+
+-- How many rows of each item class the other filters let through, from the last redraw (Calc.View).
+local classCounts = {}
+
+-- The item classes among the shown results' products, in the auction house's order (Calc.ListedClasses).
+local function ListedClasses()
+    return job and job.itemClasses or {}
+end
+
+-- The game's own name for an item class, as the auction house shows it.
+local function ItemClassName(classID)
+    if classID == Calc.OTHER_CLASS then return "Other" end
+    return C_Item.GetItemClassInfo and C_Item.GetItemClassInfo(classID) or ("Item class " .. classID)
+end
+
+-- A product's category and subcategory: "Armor · Cloth", or one name when the two are the same.
+local function ItemTypeText(itemID, classID)
+    local _, itemType, itemSubType = C_Item.GetItemInfoInstant(itemID)
+    if type(itemType) ~= "string" or itemType == "" then return ItemClassName(classID) end
+    if type(itemSubType) == "string" and itemSubType ~= "" and itemSubType ~= itemType then
+        return itemType .. " · " .. itemSubType
+    end
+    return itemType
+end
+
+-- How many listed classes are ticked, how many are listed, the last ticked one, and whether exactly the gear is
+-- unticked: every listed weapon and armor class, and nothing else.
+local function ItemClassCounts()
+    local hidden, listed = Crafts.saved.hiddenItemClasses, ListedClasses()
+    local shown, last, gearListed, onlyGearHidden = 0, nil, false, true
+    for _, classID in ipairs(listed) do
+        local gear = Calc.GEAR[classID]
+        if gear then gearListed = true end
+        if hidden[classID] then
+            if not gear then onlyGearHidden = false end
+        else
+            shown, last = shown + 1, classID
+            if gear then onlyGearHidden = false end
+        end
+    end
+    return shown, #listed, last, gearListed and onlyGearHidden
+end
+
+-- The closed dropdown's text: "All item types", "No item types", "No gear", the one ticked type or "5 item types".
+local function ItemClassesText()
+    local shown, total, last, noGear = ItemClassCounts()
+    if shown == total then return "All item types" end
+    if shown == 0 then return "No item types" end
+    if noGear then return "No gear" end
+    if shown == 1 then return ItemClassName(last) end
+    return shown .. " item types"
+end
+
+local function UpdateItemClassesText()
+    SetClosedText(dropdowns.itemClass, ItemClassesText())
+end
+
+local function ItemClassesChanged()
+    viewAt = 0
+    UpdateItemClassesText()
+    return MenuResponse and MenuResponse.Refresh
+end
+
+-- The type's name and how many rows it holds under the other filters; all grey when it holds none.
+local function ItemClassLabel(classID)
+    local count = classCounts[classID] or 0
+    if count == 0 then return "|cff808080" .. ItemClassName(classID) .. " (0)|r" end
+    return ItemClassName(classID) .. " |cff999999(" .. count .. ")|r"
+end
+
+-- Select all and Select none, then a checkbox per item class, as in the profession filter.
+local function ItemClassMenu(root)
+    local hidden = Crafts.saved.hiddenItemClasses
+    local listed = ListedClasses()
+    local all = root:CreateButton("Select all", function()
+        wipe(hidden)
+        return ItemClassesChanged()
+    end)
+    local none = root:CreateButton("Select none", function()
+        for _, classID in ipairs(listed) do hidden[classID] = true end
+        return ItemClassesChanged()
+    end)
+    if all.SetEnabled then
+        all:SetEnabled(function()
+            local shown, total = ItemClassCounts()
+            return shown < total
+        end)
+        none:SetEnabled(function() return (ItemClassCounts()) > 0 end)
+    end
+    root:CreateDivider()
+    for _, classID in ipairs(listed) do
+        root:CreateCheckbox(ItemClassLabel(classID), function(data) return not hidden[data] end, function(data)
+            hidden[data] = not hidden[data] or nil
+            return ItemClassesChanged()
+        end, classID)
+    end
+end
+
+-- The gamepad step: all item types, then no gear, then each type alone in menu order, then all again. No gear is
+-- left out when it would be a single type alone.
+local function StepItemClasses()
+    local listed, hidden = ListedClasses(), Crafts.saved.hiddenItemClasses
+    if #listed == 0 then return end
+    local gear, other = 0, 0
+    for _, classID in ipairs(listed) do
+        if Calc.GEAR[classID] then gear = gear + 1 else other = other + 1 end
+    end
+    local steps = {"all"}
+    if gear > 0 and other > 1 then steps[#steps + 1] = "nogear" end
+    for _, classID in ipairs(listed) do steps[#steps + 1] = classID end
+    local shown, total, last, noGear = ItemClassCounts()
+    local current = 0
+    for index, step in ipairs(steps) do
+        if (step == "all" and shown == total) or (step == "nogear" and noGear) or (shown == 1 and step == last) then
+            current = index
+        end
+    end
+    local step = steps[current % #steps + 1]
+    wipe(hidden)
+    for _, classID in ipairs(listed) do
+        if (step == "nogear" and Calc.GEAR[classID]) or (step ~= "all" and step ~= "nogear" and classID ~= step) then
+            hidden[classID] = true
+        end
+    end
+    ItemClassesChanged()
+end
+
 local function RefreshMenus()
     for _, dropdown in pairs(dropdowns) do
         if dropdown.GenerateMenu then dropdown:GenerateMenu() end
     end
     UpdateProfessionsText()
+    UpdateItemClassesText()
 end
 
 -- Wowhead links -------------------------------------------------------------------------------------------------
@@ -622,6 +754,7 @@ local function RenderDetails()
 
     local skillLine = reader.RecipeProfession(recipeID)
     local skill, source, recipeItem, fee = reader.RecipeRequirement(recipeID)
+    AddDetail("pair", "Item type", outputID and ItemTypeText(outputID, row.itemClass) or ItemClassName(row.itemClass))
     AddDetail("pair", "Profession", ProfessionName(skillLine))
     local where = source == "trainer" and "trainer" or (source == "item" and "recipe item" or "source unknown")
     AddDetail("pair", "Required skill", (skill and tostring(skill) or "Unknown") .. " (" .. where .. ")")
@@ -832,25 +965,32 @@ local function CurrentFilter()
             if crafter.key == settings.character then index = i end
         end
     end
-    return {crafter = index, hiddenProfessions = settings.hiddenProfessions, availability = settings.availability,
-        search = searchText, profitableOnly = settings.profitableOnly, sort = settings.sort}
+    return {crafter = index, hiddenProfessions = settings.hiddenProfessions,
+        hiddenItemClasses = settings.hiddenItemClasses, availability = settings.availability, search = searchText,
+        profitableOnly = settings.profitableOnly, sort = settings.sort}
 end
 
 local function RebuildView()
     viewAt = nil
     if not job then return end
     filter = CurrentFilter()
-    view = Calc.View(reader, job, filter)
+    view, classCounts = Calc.View(reader, job, filter)
     SetRows(view)
     if not FindRow(selected) then selected = view[1] and view[1].id or nil end
+    local classesShown, classesListed = ItemClassCounts()
     if #view == 0 and ProfessionCounts() == 0 then
         message:SetText("No professions are selected.\n\nTick at least one in the profession filter, or choose "
+            .. "Select all.")
+        message:Show()
+    elseif #view == 0 and classesListed > 0 and classesShown == 0 then
+        message:SetText("No item types are selected.\n\nTick at least one in the item type filter, or choose "
             .. "Select all.")
         message:Show()
     elseif #view == 0 then
         message:SetText("Nothing matches these filters.\n\nThe default lists recipes a character knows or meets "
             .. "the skill requirement for. Choose Everything under availability to include recipes that need more "
-            .. "skill or whose status is unknown.")
+            .. "skill or whose status is unknown."
+            .. (classesShown < classesListed and " Item types you have unticked are hidden too." or ""))
         message:Show()
     else
         message:Hide()
@@ -914,6 +1054,7 @@ local function Finished()
         return
     end
     job = done
+    job.itemClasses = Calc.ListedClasses(job.rows)
     RefreshMenus()
     RebuildView()
 end
@@ -949,7 +1090,7 @@ local function OnUpdate()
 end
 
 local function Release()
-    job, work, view, reader, filter = nil, nil, nil, nil, nil
+    job, work, view, reader, filter, classCounts = nil, nil, nil, nil, nil, {}
     restartAt, viewAt, redrawAt, paused = nil, nil, nil, false
     SetRows(nil)
     BeginDetails()
@@ -1211,7 +1352,7 @@ local function Create()
     end
 
     -- Filters, clear of the portrait that overhangs the top-left corner.
-    dropdowns.character = Dropdown(frame, 160, function(root)
+    dropdowns.character = Dropdown(frame, 150, function(root)
         local get = function() return Crafts.saved.character end
         local set = function(value) Crafts.saved.character, viewAt = value, 0 end
         Radio(root, "All characters", "all", get, set)
@@ -1221,17 +1362,20 @@ local function Create()
     end)
     dropdowns.character:SetPoint("TOPLEFT", 76, -32)
     if dropdowns.character.SetDefaultText then dropdowns.character:SetDefaultText("All characters") end
-    dropdowns.profession = Dropdown(frame, 160, ProfessionMenu, StepProfessions)
+    dropdowns.profession = Dropdown(frame, 150, ProfessionMenu, StepProfessions)
     dropdowns.profession:SetPoint("LEFT", dropdowns.character, "RIGHT", 8, 0)
     UpdateProfessionsText()
-    dropdowns.availability = Dropdown(frame, 220, function(root)
+    dropdowns.itemClass = Dropdown(frame, 150, ItemClassMenu, StepItemClasses)
+    dropdowns.itemClass:SetPoint("LEFT", dropdowns.profession, "RIGHT", 8, 0)
+    UpdateItemClassesText()
+    dropdowns.availability = Dropdown(frame, 180, function(root)
         local get = function() return Crafts.saved.availability end
         local set = function(value) Crafts.saved.availability, viewAt = value, 0 end
         for _, option in ipairs(Calc.AVAILABILITY) do Radio(root, option[2], option[1], get, set) end
     end)
-    dropdowns.availability:SetPoint("LEFT", dropdowns.profession, "RIGHT", 8, 0)
+    dropdowns.availability:SetPoint("LEFT", dropdowns.itemClass, "RIGHT", 8, 0)
 
-    searchBox = Edit(frame, 150)
+    searchBox = Edit(frame, 120)
     searchBox:SetPoint("LEFT", dropdowns.availability, "RIGHT", 18, 0)
     local hint = Text(searchBox, "GameFontDisableSmall")
     hint:SetPoint("LEFT", 0, 0)

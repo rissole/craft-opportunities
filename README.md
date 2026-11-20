@@ -40,12 +40,16 @@ Filters:
 
 - **Character**: all characters, or one.
 - **Profession**: a checkbox for each profession, with *Select all* and *Select none*.
+- **Item type**: a checkbox for each kind of product, by the auction house's categories (Weapon, Armor, Container,
+  Consumable, Trade Goods and so on), with *Select all* and *Select none*. Each shows how many recipes it holds under
+  the other filters. Gear rarely sells at the price it is listed for: untick Weapon and Armor to hide it, and the
+  filter reads *No gear*.
 - **Availability**: *Known or can learn* (the default), known only, can learn only, also higher skill needed, or
   everything.
 - **Search**: the recipe name or the product's name.
 - **Profitable only**.
 
-Select a row for details: the product and mean yield, the required skill and where the recipe is learned, each
+Select a row for details: the product, its item type and mean yield, the required skill and where the recipe is learned, each
 character's state, every material with its unit price and source, and the sale assumptions. When SkillUp Forever
 knows where a recipe item comes from, the details list its vendors, quests and drops.
 

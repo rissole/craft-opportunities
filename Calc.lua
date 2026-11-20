@@ -27,6 +27,42 @@ Calc.ISSUE_TEXT = {
 -- and soulbound results (bind on pickup or quest items).
 Calc.EXCLUDED = {noitem = true, soulbound = true}
 
+-- Item types ------------------------------------------------------------------------------------------------------
+
+-- The game's item classes (Enum.ItemClass) in the auction house's category order. Calc.OTHER_CLASS holds products the
+-- client has no class for, and recipes without an item. Weapons and armor are gear.
+local ItemClass = Enum and Enum.ItemClass or {}
+Calc.OTHER_CLASS = -1
+Calc.CLASS_ORDER = {ItemClass.Weapon or 2, ItemClass.Armor or 4, ItemClass.Container or 1, ItemClass.Consumable or 0,
+    ItemClass.Tradegoods or 7, ItemClass.Projectile or 6, ItemClass.Quiver or 11, ItemClass.Recipe or 9,
+    ItemClass.Reagent or 5, ItemClass.Miscellaneous or 15, ItemClass.Questitem or 12, ItemClass.Key or 13}
+Calc.GEAR = {[ItemClass.Weapon or 2] = true, [ItemClass.Armor or 4] = true}
+
+-- A product's item class, from the client's own item data: no wait for the server.
+function Calc.ItemClass(itemID)
+    local classID = itemID and select(6, C_Item.GetItemInfoInstant(itemID))
+    return type(classID) == "number" and classID or Calc.OTHER_CLASS
+end
+
+-- The item classes among some rows: those in Calc.CLASS_ORDER in that order, then any other by ID, then
+-- Calc.OTHER_CLASS.
+function Calc.ListedClasses(rows)
+    local present, listed, rest = {}, {}, {}
+    for _, row in ipairs(rows) do present[row.itemClass] = true end
+    for _, classID in ipairs(Calc.CLASS_ORDER) do
+        if present[classID] then
+            listed[#listed + 1], present[classID] = classID, nil
+        end
+    end
+    for classID in pairs(present) do
+        if classID ~= Calc.OTHER_CLASS then rest[#rest + 1] = classID end
+    end
+    table.sort(rest)
+    for _, classID in ipairs(rest) do listed[#listed + 1] = classID end
+    if present[Calc.OTHER_CLASS] then listed[#listed + 1] = Calc.OTHER_CLASS end
+    return listed
+end
+
 -- Prices -------------------------------------------------------------------------------------------------------
 
 -- A per-calculation cache over one pricing snapshot (Prices.Current): material[itemID] and sale[itemID] are copper or
@@ -138,8 +174,8 @@ end
 
 -- One row per recipe at least one crafter has a state for, built a slice at a time:
 -- {id, states (one digit per crafter, 0 for none), best, profit, cost, proceeds, ratio (Calc.Return), issue,
--- missing}. Names, icons and
--- requirements stay in SkillUp's data and are read when a row is drawn. Recipes in Calc.EXCLUDED get no row;
+-- missing, itemClass (Calc.ItemClass)}. Names, icons and requirements stay in SkillUp's data and are read when a row
+-- is drawn. Recipes in Calc.EXCLUDED get no row;
 -- job.excluded counts them by issue.
 function Calc.NewJob(reader, cache, crafters)
     local job = {rows = {}, excluded = {noitem = 0, soulbound = 0}, crafters = crafters, processed = 0,
@@ -160,9 +196,11 @@ function Calc.NewJob(reader, cache, crafters)
                 if Calc.EXCLUDED[issue] then
                     job.excluded[issue] = job.excluded[issue] + 1
                 else
+                    local outputID, _, kind = reader.RecipeOutput(recipeID)
                     job.rows[#job.rows + 1] = {id = recipeID, states = table.concat(digits, "", 1, #crafters),
                         best = best, profit = profit, cost = cost, proceeds = proceeds,
-                        ratio = Calc.Return(cost, proceeds), issue = issue, missing = missing}
+                        ratio = Calc.Return(cost, proceeds), issue = issue, missing = missing,
+                        itemClass = Calc.ItemClass(kind == "item" and outputID or nil)}
                 end
             end
             job.processed = job.processed + 1
@@ -239,26 +277,31 @@ local function ByReturn(a, b)
     return ByProfit(a, b)
 end
 
--- The rows the filters let through, sorted. filter = {crafter (index, 0 for all), hiddenProfessions
--- ([skillLine] = true for each unticked one),
+-- The rows the filters let through, sorted, and how many rows of each item class the other filters let through
+-- ([classID] = count), whether that class is ticked or not. filter = {crafter (index, 0 for all), hiddenProfessions
+-- ([skillLine] = true for each unticked one), hiddenItemClasses ([classID] = true for each unticked one),
 -- availability (option id), search (lower case, "" for none), profitableOnly, sort ("profit" or "return")}. Each
 -- row's `state` is set to the state shown for it under this filter.
 function Calc.View(reader, job, filter)
     local option = Calc.Availability(filter.availability)
     local low, high = option[3], option[4]
-    local view = {}
+    local hiddenClasses = filter.hiddenItemClasses or {}
+    local view, counts = {}, {}
     for _, row in ipairs(job.rows) do
         local state = Calc.RowState(row, filter.crafter)
         if state and state >= low and state <= high
             and not filter.hiddenProfessions[reader.RecipeProfession(row.id) or false]
             and (not filter.profitableOnly or (row.profit ~= nil and row.profit > 0))
             and (filter.search == "" or Calc.Matches(reader, row.id, filter.search)) then
-            row.state = state
-            view[#view + 1] = row
+            counts[row.itemClass] = (counts[row.itemClass] or 0) + 1
+            if not hiddenClasses[row.itemClass] then
+                row.state = state
+                view[#view + 1] = row
+            end
         end
     end
     table.sort(view, filter.sort == "return" and ByReturn or ByProfit)
-    return view
+    return view, counts
 end
 
 -- "Name: state" for each crafter shown for a row.
