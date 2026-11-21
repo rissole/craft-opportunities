@@ -1467,23 +1467,33 @@ local function ToggleSaleVendor()
     Start(true)
 end
 
--- Add-ons that would show more, each offered while it is not loaded, with what it adds. Install shows its CurseForge
--- page's address to copy.
+-- Add-ons that would show more, each recommended while it is not loaded: a card in the banner above the list (the
+-- most important first), or once its card is dismissed, which only some allow, in the Pricing panel. Install shows
+-- its CurseForge page's address to copy. Whether an addon is loaded cannot change in a session.
 local CURSEFORGE = "https://www.curseforge.com/wow/addons/"
 local SUGGESTIONS = {
-    {name = "SkillUp Forever", slug = "skillup-forever",
+    {name = "Auctionator", slug = "auctionator", icon = "Interface\\Icons\\INV_Misc_Coin_01",
+        headline = "Most prices are missing", line = "Auctionator prices materials from your auction house scans.",
+        wanted = function() return not (Prices.HasTSM() or Prices.HasAuctionator()) end},
+    {name = "SkillUp Forever", slug = "skillup-forever", icon = "Interface\\Icons\\INV_Scroll_03", dismissable = true,
+        headline = "Find recipes worth learning", line = "SkillUp Forever adds learnable recipes and where to get them.",
         text = "Adds the recipes your characters could learn, with the skill each needs and where to get it.",
         wanted = function() return not Crafts.HasSkillUp() end},
-    {name = "Auctionator", slug = "auctionator",
-        text = "Prices materials and crafts from the auction house, recording prices as you scan, with no setup. "
-            .. "Without it or TSM, only vendor prices are known, so most profits are missing.",
-        wanted = function() return not (Prices.HasTSM() or Prices.HasAuctionator()) end},
 }
 
+local function Dismissed(suggestion)
+    return suggestion.dismissable == true and Crafts.saved.dismissed[suggestion.slug] == true
+end
+
+local function Install(suggestion)
+    ShowLink("CurseForge link", CURSEFORGE .. suggestion.slug, suggestion.name .. " on CurseForge", suggestion.icon)
+end
+
+-- The Pricing panel's Recommended section: the dismissed cards.
 local function LayoutSuggestions()
     local box, y = pricing.Suggestions, -24
     for _, entry in ipairs(box.entries) do
-        local shown = entry.wanted()
+        local shown = entry.suggestion.wanted() and Dismissed(entry.suggestion)
         entry.name:SetShown(shown)
         entry.text:SetShown(shown)
         entry.install:SetShown(shown)
@@ -1509,18 +1519,111 @@ local function BuildSuggestions(width)
     title:SetText("Recommended")
     box.entries = {}
     for _, suggestion in ipairs(SUGGESTIONS) do
-        local name = Text(box, "GameFontHighlight", width - 90)
-        name:SetText(suggestion.name)
-        local text = Text(box, "GameFontHighlightSmall", width)
-        text:SetWordWrap(true)
-        text:SetText(suggestion.text)
-        local install = Button(box, "Install", 80)
-        install:SetScript("OnClick", function()
-            ShowLink("CurseForge link", CURSEFORGE .. suggestion.slug, suggestion.name .. " on CurseForge")
-        end)
-        box.entries[#box.entries + 1] = {name = name, text = text, install = install, wanted = suggestion.wanted}
+        if suggestion.dismissable then
+            local name = Text(box, "GameFontHighlight", width - 90)
+            name:SetText(suggestion.name)
+            local text = Text(box, "GameFontHighlightSmall", width)
+            text:SetWordWrap(true)
+            text:SetText(suggestion.text)
+            local install = Button(box, "Install", 80)
+            install:SetScript("OnClick", function() Install(suggestion) end)
+            box.entries[#box.entries + 1] = {name = name, text = text, install = install, suggestion = suggestion}
+        end
     end
     pricing.Suggestions = box
+end
+
+-- The banner: a card per recommendation, side by side across the window above the list, which moves down below
+-- them. With no card left the banner hides and the list takes its place.
+local BANNER_HEIGHT, BANNER_GAP, LIST_TOP = 44, 6, -90
+local CARD_TEXT_X, INSTALL_WIDTH, DISMISS_WIDTH = 46, 80, 22
+local banner, listInset
+
+local function LayoutBanner()
+    local shown = {}
+    for _, card in ipairs(banner.cards) do
+        local on = card.suggestion.wanted() and not Dismissed(card.suggestion)
+        card:SetShown(on)
+        if on then shown[#shown + 1] = card end
+    end
+    local width = (WIDTH - 20 - BANNER_GAP * math.max(#shown - 1, 0)) / math.max(#shown, 1)
+    for index, card in ipairs(shown) do
+        card:ClearAllPoints()
+        card:SetSize(width, BANNER_HEIGHT)
+        card:SetPoint("TOPLEFT", banner, "TOPLEFT", (index - 1) * (width + BANNER_GAP), 0)
+        local textWidth = width - CARD_TEXT_X - INSTALL_WIDTH - 16 - (card.dismiss and DISMISS_WIDTH or 0)
+        card.headline:SetWidth(textWidth)
+        card.line:SetWidth(textWidth)
+    end
+    banner:SetShown(#shown > 0)
+    listInset:SetPoint("TOPLEFT", 10, #shown > 0 and LIST_TOP - BANNER_HEIGHT - BANNER_GAP or LIST_TOP)
+end
+
+local CARD_EDGES = {{"TOPLEFT", "TOPRIGHT"}, {"BOTTOMLEFT", "BOTTOMRIGHT"}, {"TOPLEFT", "BOTTOMLEFT"},
+    {"TOPRIGHT", "BOTTOMRIGHT"}}
+
+-- A warm card with a thin gold border: icon, gold headline, one line naming the addon, Install, and an × for one that
+-- can be dismissed.
+local function BuildCard(suggestion)
+    local card = CreateFrame("Frame", nil, banner)
+    card.suggestion = suggestion
+    local background = card:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(0.2, 0.14, 0.03, 0.92)
+    for index, edge in ipairs(CARD_EDGES) do
+        local border = card:CreateTexture(nil, "BORDER")
+        border:SetColorTexture(1, 0.82, 0, 0.75)
+        border:SetPoint(edge[1])
+        border:SetPoint(edge[2])
+        if index <= 2 then border:SetHeight(1) else border:SetWidth(1) end
+    end
+    local icon = card:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(32, 32)
+    icon:SetPoint("LEFT", 7, 0)
+    icon:SetTexture(suggestion.icon)
+    card.headline = Text(card, "GameFontNormal")
+    card.headline:SetPoint("TOPLEFT", CARD_TEXT_X, -8)
+    card.headline:SetWordWrap(false)
+    card.headline:SetText(suggestion.headline)
+    card.line = Text(card, "GameFontHighlightSmall")
+    card.line:SetPoint("TOPLEFT", CARD_TEXT_X, -25)
+    card.line:SetWordWrap(false)
+    card.line:SetText(suggestion.line)
+    local right = -8
+    if suggestion.dismissable then
+        card.dismiss = CreateFrame("Button", nil, card, "UIPanelCloseButton")
+        card.dismiss:SetSize(DISMISS_WIDTH, DISMISS_WIDTH)
+        card.dismiss:SetPoint("RIGHT", -4, 0)
+        card.dismiss:SetScript("OnClick", function()
+            Crafts.saved.dismissed[suggestion.slug] = true
+            GameTooltip_Hide()
+            LayoutBanner()
+            if pricing:IsShown() then LayoutSuggestions() end
+        end)
+        card.dismiss:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_TOP")
+            GameTooltip:SetText("Dismiss")
+            GameTooltip:AddLine("You can find it again under Pricing.", 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        card.dismiss:SetScript("OnLeave", GameTooltip_Hide)
+        right = right - DISMISS_WIDTH
+    end
+    local install = CreateFrame("Button", nil, card, "UIPanelButtonTemplate")
+    install:SetSize(INSTALL_WIDTH, 22)
+    install:SetText("Install")
+    install:SetPoint("RIGHT", right, 0)
+    install:SetScript("OnClick", function() Install(suggestion) end)
+    return card
+end
+
+local function BuildBanner()
+    banner = CreateFrame("Frame", nil, frame)
+    banner:SetPoint("TOPLEFT", 10, LIST_TOP)
+    banner:SetSize(WIDTH - 20, BANNER_HEIGHT)
+    banner.cards = {}
+    for _, suggestion in ipairs(SUGGESTIONS) do banner.cards[#banner.cards + 1] = BuildCard(suggestion) end
+    LayoutBanner()
 end
 
 local function LoadPricing()
@@ -1788,10 +1891,12 @@ local function Create()
     pricingButton:SetPoint("RIGHT", refresh, "LEFT", -6, 0)
 
     -- The list, its column headings and the message that stands in for it.
-    local listInset = CreateFrame("Frame", nil, frame, "InsetFrameTemplate")
-    listInset:SetPoint("TOPLEFT", 10, -90)
+    listInset = CreateFrame("Frame", nil, frame, "InsetFrameTemplate")
+    listInset:SetPoint("TOPLEFT", 10, LIST_TOP)
     listInset:SetPoint("BOTTOMLEFT", 10, 10)
     listInset:SetWidth(LIST_WIDTH)
+    -- Recommendation cards above the list, which they push down.
+    BuildBanner()
     header = CreateFrame("Frame", nil, listInset)
     header:SetPoint("TOPLEFT", 4, -4)
     header:SetPoint("TOPRIGHT", -SCROLL_BAR, -4)

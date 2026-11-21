@@ -1,5 +1,11 @@
 # Craft Opportunities
 
+## 3.3.1
+
+- Recommendations now show as cards above the list, each with an **Install** button: Auctionator when neither it nor
+  TSM is loaded, and SkillUp Forever when it is not. The SkillUp Forever card can be dismissed; its Install link then
+  stays under Pricing.
+
 ## 3.3.0
 
 - **SkillUp Forever is now optional.** Without it, the window lists the recipes your characters know, with materials

@@ -70,6 +70,8 @@ function Crafts:Defaults()
         salesMinRate = 0,
         -- "profit" or "return" (Calc.SORTS), chosen by clicking a column heading.
         sort = "profit",
+        -- Recommendation cards closed with their ×, [CurseForge slug] = true (UI.lua's SUGGESTIONS).
+        dismissed = {},
         window = {},
         -- [GUID] = this account's characters (Characters.lua)
         characters = {},
@@ -104,6 +106,9 @@ function Crafts:OnInitialize(saved)
         for id, value in pairs(hidden) do
             if type(id) ~= "number" or value ~= true then hidden[id] = nil end
         end
+    end
+    for slug, value in pairs(saved.dismissed) do
+        if type(slug) ~= "string" or value ~= true then saved.dismissed[slug] = nil end
     end
     -- A blank expression follows the defaults.
     for _, key in ipairs({"materialPrice", "salePrice"}) do
