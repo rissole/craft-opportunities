@@ -1,5 +1,13 @@
 # Craft Opportunities
 
+## 3.3.0
+
+- **SkillUp Forever is now optional.** Without it, the window lists the recipes your characters know, with materials
+  and products from the game itself. Open each profession window once on each character to record its recipes.
+  SkillUp Forever adds the recipes they could learn, the skill each needs and where to get it.
+- Pricing shows an **Install** link for SkillUp Forever when it is not loaded, and for Auctionator when neither it nor
+  TSM is.
+
 ## 3.2.0
 
 Needs TSM's region data (TSM desktop app); without it nothing changes.

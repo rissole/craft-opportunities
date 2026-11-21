@@ -1,9 +1,9 @@
 local addonName, Crafts = ...
 
 -- Craft Opportunities: profitable crafts across this account's characters. Recipes and requirements come from
--- SkillUp Forever's addon API (SkillUp.lua); each character's professions and learned recipes are recorded here
--- (Characters.lua). Prices come from TradeSkillMaster when it is installed, else follow SkillUp Forever's own rules
--- (Prices.lua). Only settings and those character records are saved.
+-- SkillUp Forever's addon API (SkillUp.lua) when it is installed, else only the recorded recipes, read from the client
+-- (Client.lua); each character's professions and learned recipes are recorded here (Characters.lua). Prices come
+-- from TradeSkillMaster when it is installed, else from Auctionator and vendors (Prices.lua). Only settings and those character records are saved.
 -- The addon table is Crafts itself; Init.lua, loaded last, runs its lifecycle.
 Crafts.name = addonName
 Crafts.events = {"PLAYER_ENTERING_WORLD", "SKILL_LINES_CHANGED", "SPELLS_CHANGED", "NEW_RECIPE_LEARNED",
@@ -114,14 +114,17 @@ end
 
 -- Dependencies -------------------------------------------------------------------------------------------------
 
--- SkillUp Forever's reader (SkillUp.lua) when Craft Opportunities can use it, and a status: "ok"; otherwise nil and
--- why not ("skillup", "skillupBroken", "old", "loading"), each with the message the window shows.
-function Crafts:Dependencies()
+-- Whether SkillUp Forever is loaded. An addon cannot load later in a session, so this holds once logged in.
+function Crafts.HasSkillUp()
     local loaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("SkillUpForever")
-    if not loaded then
-        return nil, "skillup", "SkillUp Forever is not loaded.\n\nCraft Opportunities reads its recipe data. Enable "
-            .. "SkillUp Forever and ForeverCore in the AddOns list, then restart the game."
-    end
+    return loaded and true or false
+end
+
+-- The recipe reader and a status: "ok" with SkillUp Forever's reader (SkillUp.lua), or with the client's (Client.lua)
+-- when SkillUp is not loaded; otherwise nil and why not ("skillupBroken", "old", "loading"), each with the message the
+-- window shows.
+function Crafts:Dependencies()
+    if not Crafts.HasSkillUp() then return self.Client.Open(), "ok" end
     local reader, reason = self.SkillUp.Open()
     if reader then
         -- Prices never stop it: without TSM it prices with Auctionator, and without Auctionator either, on vendor
@@ -140,8 +143,9 @@ function Crafts:Dependencies()
     return nil, "loading", "SkillUp Forever is still loading. Try again in a moment."
 end
 
--- The reader, only when SkillUp can answer.
+-- The reader, only when it can answer.
 function Crafts:Source()
+    if not Crafts.HasSkillUp() then return self.Client.Open() end
     return (self.SkillUp.Open())
 end
 

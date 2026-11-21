@@ -5,9 +5,8 @@ manual-changelog:
   markup-type: markdown
 
 # CurseForge relations, by project slug.
-required-dependencies:
-  - skillup-forever
 optional-dependencies:
+  - skillup-forever
   - tradeskill-master
   - auctionator
 

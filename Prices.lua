@@ -16,8 +16,7 @@ local _, Crafts = ...
 --   Material(reader, itemID) -> copper, source          one unit of a material
 --   Sale(reader, itemID)     -> copper, source, cut     one unit of a product before the cut; the cut in percent
 --   Problem()             -> nil, or why it cannot price
---   Warning()             -> nil, or the Pricing panel's warning under its title
---   Note()                -> the Pricing panel's closing note
+--   Note()                -> nil, or the Pricing panel's note under its buttons
 --   mode ("tsm" or "basic"), label (the status line) and key (equal keys price identically, for the cache).
 -- A missing price is nil, never 0. Owned and gathered materials are priced as bought in both, never free.
 local Prices = {}
@@ -253,13 +252,9 @@ function TSM:Problem()
         .. "\n\nOpen Pricing to change it."
 end
 
-function TSM:Warning()
-    return nil
-end
-
 function TSM:Note()
-    return "Prices are for this character's realm and faction. Like TSM, Craft Opportunities doesn't take the auction "
-        .. "house cut for you, so if you write your own sale price, include it, e.g. max(AtrValue * 0.95, VendorSell)."
+    return "As in TSM, a sale price takes no auction house cut of its own: include it, e.g. "
+        .. "max(AtrValue * 0.95, VendorSell)."
 end
 
 -- Without TradeSkillMaster ------------------------------------------------------------------------------------
@@ -310,15 +305,8 @@ function Basic:Problem()
     return nil
 end
 
-function Basic:Warning()
-    if self.source then return nil end
-    return "Neither TradeSkillMaster nor Auctionator is loaded, so materials have no price and only vendor sell prices "
-        .. "are known."
-end
-
 function Basic:Note()
-    return "Prices are this character's realm and faction market. Install TradeSkillMaster to price with TSM "
-        .. "expressions instead."
+    return nil
 end
 
 local function SaleLabel(id)

@@ -48,7 +48,7 @@ local PROFESSION_ICONS = {
 local STATE_COLORS = {{0.25, 0.85, 0.25}, {1, 0.82, 0}, {1, 0.5, 0.25}, {0.6, 0.6, 0.6}}
 local frame, list, message, status, header, pricing, detailBody, searchBox, profitable
 local dropdowns = {}
--- Temporary while the window is open, released when it closes: SkillUp's reader, the finished job whose rows are
+-- Temporary while the window is open, released when it closes: the recipe reader, the finished job whose rows are
 -- shown, the job still calculating (shown once it finishes, so a refresh never blanks the list), the filtered view
 -- and the filter the view was drawn with. The price cache outlives a close, so reopening only asks for prices again
 -- once they are old or have changed.
@@ -685,7 +685,8 @@ local function LinkModifier()
     return IsControlKeyDown() or (IsMetaKeyDown ~= nil and IsMetaKeyDown())
 end
 
-local function ShowWowhead(kind, id, name, icon)
+-- The link window, titled `title`, with `url` selected under `name`.
+local function ShowLink(title, url, name, icon)
     if not linkWindow then
         local window = CreateFrame("Frame", nil, frame, "PortraitFrameTemplate")
         window:SetSize(LINK_WIDTH, LINK_HEIGHT)
@@ -701,7 +702,6 @@ local function ShowWowhead(kind, id, name, icon)
         window:RegisterForDrag("LeftButton")
         window:SetScript("OnDragStart", window.StartMoving)
         window:SetScript("OnDragStop", window.StopMovingOrSizing)
-        window:SetTitle("Wowhead link")
         window.Name = Text(window, "GameFontNormal", LINK_WIDTH - 76 - 16)
         window.Name:SetPoint("TOPLEFT", 76, -32)
         window.Name:SetWordWrap(false)
@@ -730,8 +730,9 @@ local function ShowWowhead(kind, id, name, icon)
         linkWindow = window
     end
     local window = linkWindow
-    window.url = WOWHEAD .. kind .. "=" .. string.format("%d", id)
-    window.Name:SetText(name or window.url)
+    window:SetTitle(title)
+    window.url = url
+    window.Name:SetText(name or url)
     local portrait = window.GetPortrait and window:GetPortrait()
     if portrait then
         portrait:SetTexCoord(0, 1, 0, 1)
@@ -745,6 +746,10 @@ local function ShowWowhead(kind, id, name, icon)
     window.Edit:SetText(window.url)
     window.Edit:SetFocus()
     window.Edit:HighlightText()
+end
+
+local function ShowWowhead(kind, id, name, icon)
+    ShowLink("Wowhead link", WOWHEAD .. kind .. "=" .. string.format("%d", id), name, icon)
 end
 
 local function AddLinkHints(tooltip, chat)
@@ -993,25 +998,28 @@ local function RenderDetails()
         AddDetail("text", "Makes " .. Number(quantity) .. " x " .. ItemName(outputID)
             .. (quantity % 1 ~= 0 and " on average" or "") .. " per craft.")
     else
-        AddDetail("text", "SkillUp's data has no product for this recipe, so it is not priced.")
+        AddDetail("text", "Its product is not known, so it is not priced.")
     end
 
     local skillLine = reader.RecipeProfession(recipeID)
     local skill, source, recipeItem, fee = reader.RecipeRequirement(recipeID)
     AddDetail("pair", "Item type", outputID and ItemTypeText(outputID, row.itemClass) or ItemClassName(row.itemClass))
     AddDetail("pair", "Profession", ProfessionName(skillLine))
-    local where = source == "trainer" and "trainer" or (source == "item" and "recipe item" or "source unknown")
-    AddDetail("pair", "Required skill", (skill and tostring(skill) or "Unknown") .. " (" .. where .. ")")
-    if source == "trainer" then
-        local text = "Trainer"
-        if type(fee) == "number" and fee > 0 then text = text .. "; fee " .. Money(fee) .. " not counted" end
-        AddDetail("pair", "Recipe source", text)
-    elseif source == "item" and not recipeItem then
-        AddDetail("pair", "Recipe source", "Recipe item, not identified")
-    elseif not recipeItem then
-        AddDetail("pair", "Recipe source", "Unknown")
+    -- Learn requirements and recipe sources come only with SkillUp.
+    if reader.learning then
+        local where = source == "trainer" and "trainer" or (source == "item" and "recipe item" or "source unknown")
+        AddDetail("pair", "Required skill", (skill and tostring(skill) or "Unknown") .. " (" .. where .. ")")
+        if source == "trainer" then
+            local text = "Trainer"
+            if type(fee) == "number" and fee > 0 then text = text .. "; fee " .. Money(fee) .. " not counted" end
+            AddDetail("pair", "Recipe source", text)
+        elseif source == "item" and not recipeItem then
+            AddDetail("pair", "Recipe source", "Recipe item, not identified")
+        elseif not recipeItem then
+            AddDetail("pair", "Recipe source", "Unknown")
+        end
+        if recipeItem then RecipeItemDetails(recipeID, recipeItem) end
     end
-    if recipeItem then RecipeItemDetails(recipeID, recipeItem) end
 
     AddDetail("heading", "Characters")
     for index, crafter in ipairs(job.crafters) do
@@ -1173,9 +1181,9 @@ local function InitRow(row, data)
     row.Icon:SetTexture(outputID and ItemIcon(outputID) or reader.RecipeIcon(data.id) or QUESTION)
     row.Name:SetText(title)
     row.Name:SetTextColor(QualityColor(outputID))
-    local skill = reader.RecipeRequirement(data.id)
-    row.Detail:SetText(ProfessionName(reader.RecipeProfession(data.id)) .. " " .. (skill or "?") .. "  ·  "
-        .. Calc.CraftersText(job, data, filter and filter.crafter))
+    local profession = ProfessionName(reader.RecipeProfession(data.id))
+    if reader.learning then profession = profession .. " " .. (reader.RecipeRequirement(data.id) or "?") end
+    row.Detail:SetText(profession .. "  ·  " .. Calc.CraftersText(job, data, filter and filter.crafter))
     row.Cost:SetText(data.cost and Money(data.cost, true)
         or (data.missing > 0 and ("|cff999999" .. data.missing .. " unpriced|r") or "-"))
     row.Proceeds:SetText(data.proceeds and Money(data.proceeds, true)
@@ -1283,12 +1291,21 @@ local function RebuildView()
         message:SetText("No item types are selected.\n\nTick at least one in the item type filter, or choose "
             .. "Select all.")
         message:Show()
+    elseif job.total == 0 and not reader.learning then
+        message:SetText("No recipes recorded yet.\n\nOpen each profession window on each character, so its recipes "
+            .. "are recorded.")
+        message:Show()
     elseif #view == 0 then
-        message:SetText("Nothing matches these filters.\n\nThe default lists recipes a character knows or meets "
-            .. "the skill requirement for. Choose Everything under availability to include recipes that need more "
-            .. "skill or whose status is unknown."
-            .. (classesShown < classesListed and " Item types you have unticked are hidden too." or "")
-            .. ((filter.minSold > 0 or filter.minSaleRate > 0) and " The Sales filter is on too." or ""))
+        local hints = {}
+        if reader.learning then
+            hints[#hints + 1] = "The default lists recipes a character knows or meets the skill requirement for. "
+                .. "Choose Everything under availability to include recipes that need more skill or whose status is "
+                .. "unknown."
+        end
+        if classesShown < classesListed then hints[#hints + 1] = "Item types you have unticked are hidden too." end
+        if filter.minSold > 0 or filter.minSaleRate > 0 then hints[#hints + 1] = "The Sales filter is on too." end
+        message:SetText("Nothing matches these filters."
+            .. (#hints > 0 and "\n\n" .. table.concat(hints, " ") or ""))
         message:Show()
     else
         message:Hide()
@@ -1332,7 +1349,9 @@ local function Start(resetPrices)
     local crafters = Crafts:Crafters()
     if #crafters == 0 then
         ShowMessage("No characters to compare yet.\n\nLog in on each character with Craft Opportunities enabled, "
-            .. "so its professions and recipes are recorded. Opening each profession once confirms its recipes.")
+            .. "so its professions and recipes are recorded. "
+            .. (reader.learning and "Opening each profession once confirms its recipes."
+                or "Open each profession window once to record its recipes."))
         return
     end
     work = Calc.NewJob(reader, cache, crafters)
@@ -1406,13 +1425,11 @@ local function LayoutPricing(tsmMode)
     for _, row in ipairs(pricing.rows) do
         local control = row[1]
         local shown = (row.tsm and tsmMode) or (row.basic and not tsmMode) or not (row.tsm or row.basic)
-        -- An empty text row (no warning) takes no room.
-        if row.text and (control:GetText() or "") == "" then shown = false end
         control:SetShown(shown)
         if shown then
             control:ClearAllPoints()
             control:SetPoint("TOPLEFT", row.x or 0, y)
-            y = y - (row[2] or (math.max(control:GetStringHeight() or 0, 28) + 10))
+            y = y - row[2]
         end
     end
 end
@@ -1447,17 +1464,69 @@ local function ToggleSaleVendor()
     if pricing.SaleVendor:GetChecked() then pricing.saleText = pricing.Sale:GetText():match("^%s*(.-)%s*$") end
     Crafts.saved.saleVendor = pricing.SaleVendor:GetChecked() and true or false
     ShowSaleField()
-    local prices = Crafts:Pricing()
-    pricing.Default:SetText(prices:Warning() or "")
-    LayoutPricing(true)
     Start(true)
+end
+
+-- Add-ons that would show more, each offered while it is not loaded, with what it adds. Install shows its CurseForge
+-- page's address to copy.
+local CURSEFORGE = "https://www.curseforge.com/wow/addons/"
+local SUGGESTIONS = {
+    {name = "SkillUp Forever", slug = "skillup-forever",
+        text = "Adds the recipes your characters could learn, with the skill each needs and where to get it.",
+        wanted = function() return not Crafts.HasSkillUp() end},
+    {name = "Auctionator", slug = "auctionator",
+        text = "Prices materials and crafts from the auction house, recording prices as you scan, with no setup. "
+            .. "Without it or TSM, only vendor prices are known, so most profits are missing.",
+        wanted = function() return not (Prices.HasTSM() or Prices.HasAuctionator()) end},
+}
+
+local function LayoutSuggestions()
+    local box, y = pricing.Suggestions, -24
+    for _, entry in ipairs(box.entries) do
+        local shown = entry.wanted()
+        entry.name:SetShown(shown)
+        entry.text:SetShown(shown)
+        entry.install:SetShown(shown)
+        if shown then
+            entry.install:ClearAllPoints()
+            entry.install:SetPoint("TOPRIGHT", 0, y)
+            entry.name:ClearAllPoints()
+            entry.name:SetPoint("TOPLEFT", 0, y - 5)
+            entry.text:ClearAllPoints()
+            entry.text:SetPoint("TOPLEFT", 0, y - 26)
+            y = y - 26 - (entry.text:GetStringHeight() or 0) - 14
+        end
+    end
+    box:SetShown(y < -24)
+end
+
+local function BuildSuggestions(width)
+    local box = CreateFrame("Frame", nil, pricing)
+    box:SetSize(width, 1)
+    box:SetPoint("TOPLEFT", pricing.Note, "BOTTOMLEFT", 0, -14)
+    local title = Text(box, "GameFontNormal", width)
+    title:SetPoint("TOPLEFT")
+    title:SetText("Recommended")
+    box.entries = {}
+    for _, suggestion in ipairs(SUGGESTIONS) do
+        local name = Text(box, "GameFontHighlight", width - 90)
+        name:SetText(suggestion.name)
+        local text = Text(box, "GameFontHighlightSmall", width)
+        text:SetWordWrap(true)
+        text:SetText(suggestion.text)
+        local install = Button(box, "Install", 80)
+        install:SetScript("OnClick", function()
+            ShowLink("CurseForge link", CURSEFORGE .. suggestion.slug, suggestion.name .. " on CurseForge")
+        end)
+        box.entries[#box.entries + 1] = {name = name, text = text, install = install, wanted = suggestion.wanted}
+    end
+    pricing.Suggestions = box
 end
 
 local function LoadPricing()
     local settings, prices = Crafts.saved, Crafts:Pricing()
     local tsmMode = prices.mode == "tsm"
     pricing.mode = prices.mode
-    pricing.Default:SetText(prices:Warning() or "")
     if tsmMode then
         pricing.Material:SetText(prices.materialPrice)
         pricing.saleText = settings.salePrice ~= "" and settings.salePrice or select(2, Prices.DefaultExpressions())
@@ -1472,8 +1541,9 @@ local function LoadPricing()
     pricing.market = settings.market
     pricing.Market:GenerateMenu()
     pricing.Error:SetText("")
-    pricing.Note:SetText(prices:Note())
+    pricing.Note:SetText(prices:Note() or "")
     LayoutPricing(tsmMode)
+    LayoutSuggestions()
 end
 
 local function ApplyPricing()
@@ -1541,8 +1611,6 @@ local function BuildPricing(parent, details)
         return label
     end
     local title = Label("Pricing", "GameFontNormalLarge")
-    pricing.Default = Text(pricing, "GameFontHighlightSmall", width)
-    pricing.Default:SetWordWrap(true)
     local materialLabel = Label("Material price (TSM expression)")
     pricing.Material = Edit(pricing, width - 8)
     local saleLabel = Label("Sale price (TSM expression)")
@@ -1598,11 +1666,11 @@ local function BuildPricing(parent, details)
     pricing.Note = Text(pricing, "GameFontDisableSmall", width)
     pricing.Note:SetPoint("TOPLEFT", pricing.Error, "BOTTOMLEFT", 0, -8)
     pricing.Note:SetWordWrap(true)
-    -- Top to bottom: {control, height (nil: the text's own), x = indent, tsm = shown only while TSM prices, basic =
-    -- shown only while it does not, text = hidden while empty}.
+    BuildSuggestions(width)
+    -- Top to bottom: {control, height, x = indent, tsm = shown only while TSM prices, basic = shown only while it
+    -- does not}.
     pricing.rows = {
         {title, 28},
-        {pricing.Default, text = true},
         {materialLabel, 18, tsm = true},
         {pricing.Material, 30, x = 6, tsm = true},
         {saleLabel, 18, tsm = true},
@@ -1668,18 +1736,21 @@ local function Create()
     dropdowns.itemClass = Dropdown(frame, 150, ItemClassMenu, StepItemClasses)
     dropdowns.itemClass:SetPoint("LEFT", dropdowns.profession, "RIGHT", 8, 0)
     UpdateItemClassesText()
-    dropdowns.availability = Dropdown(frame, 180, function(root)
-        local get = function() return Crafts.saved.availability end
-        local set = function(value) Crafts.saved.availability, viewAt = value, 0 end
-        for _, option in ipairs(Calc.AVAILABILITY) do Radio(root, option[2], option[1], get, set) end
-    end)
-    dropdowns.availability:SetPoint("LEFT", dropdowns.itemClass, "RIGHT", 8, 0)
-    -- Left to right: who and what, whether it can be made, whether it is worth making (Sales with TSM, then
-    -- Profitable only), and the search at the right end.
-    local beforeProfitable = dropdowns.availability
+    -- Left to right: who and what, whether it can be made (with SkillUp, which knows the recipes not yet learned),
+    -- whether it is worth making (Sales with TSM, then Profitable only), and the search at the right end.
+    local beforeProfitable = dropdowns.itemClass
+    if Crafts.HasSkillUp() then
+        dropdowns.availability = Dropdown(frame, 180, function(root)
+            local get = function() return Crafts.saved.availability end
+            local set = function(value) Crafts.saved.availability, viewAt = value, 0 end
+            for _, option in ipairs(Calc.AVAILABILITY) do Radio(root, option[2], option[1], get, set) end
+        end)
+        dropdowns.availability:SetPoint("LEFT", dropdowns.itemClass, "RIGHT", 8, 0)
+        beforeProfitable = dropdowns.availability
+    end
     if salesFilter then
         dropdowns.sales = SalesButton(frame)
-        dropdowns.sales:SetPoint("LEFT", dropdowns.availability, "RIGHT", SALES_GAP, 0)
+        dropdowns.sales:SetPoint("LEFT", beforeProfitable, "RIGHT", SALES_GAP, 0)
         UpdateSalesText()
         beforeProfitable = dropdowns.sales
     end

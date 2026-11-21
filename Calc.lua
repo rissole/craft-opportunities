@@ -161,11 +161,13 @@ end
 
 -- Eligibility --------------------------------------------------------------------------------------------------
 
--- One character's state for one recipe, or nil when it does not have the profession.
-function Calc.State(crafter, recipeID, skillLine, required)
+-- One character's state for one recipe, or nil when it does not have the profession. Without `learning` (a reader
+-- that knows only recorded recipes) a character that does not know it has none either.
+function Calc.State(crafter, recipeID, skillLine, required, learning)
     local entry = skillLine and crafter.professions[skillLine]
     if not entry then return nil end
     if Crafts.Knows(crafter, recipeID) then return Calc.KNOWN end
+    if not learning then return nil end
     if not required then return Calc.UNKNOWN end
     return entry.base >= required and Calc.MEETS or Calc.HIGHER
 end
@@ -174,7 +176,7 @@ end
 
 -- One row per recipe at least one crafter has a state for, built a slice at a time:
 -- {id, states (one digit per crafter, 0 for none), best, profit, cost, proceeds, ratio (Calc.Return), issue,
--- missing, itemClass (Calc.ItemClass), sold, saleRate and saleAverage (Market.Get, nil without data)}. Names, icons and requirements stay in SkillUp's data and are read when a row
+-- missing, itemClass (Calc.ItemClass), sold, saleRate and saleAverage (Market.Get, nil without data)}. Names, icons and requirements stay with the reader and are read when a row
 -- is drawn. Recipes in Calc.EXCLUDED get no row;
 -- job.excluded counts them by issue.
 function Calc.NewJob(reader, cache, crafters)
@@ -187,7 +189,7 @@ function Calc.NewJob(reader, cache, crafters)
             local best
             local required = reader.RecipeRequirement(recipeID)
             for index, crafter in ipairs(crafters) do
-                local state = Calc.State(crafter, recipeID, skillLine, required)
+                local state = Calc.State(crafter, recipeID, skillLine, required, reader.learning)
                 digits[index] = state or 0
                 if state and (not best or state < best) then best = state end
             end

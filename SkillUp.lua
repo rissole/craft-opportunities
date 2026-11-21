@@ -84,7 +84,8 @@ end
 
 -- The reader ---------------------------------------------------------------------------------------------------------
 
-local Reader = {}
+-- learning: SkillUp knows every recipe and its learn requirement, so characters that could learn one are compared too.
+local Reader = {learning = true}
 Source.Reader = Reader
 
 local NONE = {}
