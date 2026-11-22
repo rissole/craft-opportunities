@@ -173,9 +173,9 @@ local function ProfessionName(skillLine)
     return skillLine and reader.ProfessionName(skillLine) or "Unknown profession"
 end
 
--- A character's full name (with the surname once recorded), and its realm when that is not this one.
+-- A character's full name (with the surname once recorded), and its ruleset or faction when that is not this one's.
 local function CrafterLabel(crafter)
-    if crafter.elsewhere and crafter.realm then return crafter.fullName .. " (" .. crafter.realm .. ")" end
+    if crafter.market then return crafter.fullName .. " (" .. crafter.market .. ")" end
     return crafter.fullName
 end
 

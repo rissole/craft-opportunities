@@ -21,7 +21,7 @@ function Crafts:Message(message)
 end
 
 Crafts.MARKET_OPTIONS = {
-    {"local", "This realm and faction"},
+    {"local", "This ruleset and faction"},
     {"all", "All recorded characters"},
 }
 
@@ -37,6 +37,20 @@ function Crafts.CurrentSurname()
     if issecretvalue and issecretvalue(surname) then return nil end
     if type(surname) == "string" and surname ~= "" then return surname end
     return nil
+end
+
+-- This character's ruleset, named as TSM names it: "Normal", "PvP", "Roleplay", "Roleplay PvP" or "Hardcore". WoW
+-- Forever has no realms; its auction houses are one per ruleset and faction. Nil when the client has no game rules.
+function Crafts.Ruleset()
+    local rules = C_GameRules
+    if not (rules and type(rules.IsGameRuleActive) == "function" and Enum and Enum.GameRule) then return nil end
+    local function active(rule) return rule ~= nil and rules.IsGameRuleActive(rule) == true end
+    local rp, pvp = active(Enum.GameRule.RPRuleset), active(Enum.GameRule.PvPRuleset)
+    if active(Enum.GameRule.HardcoreRuleset) then return "Hardcore" end
+    if rp and pvp then return "Roleplay PvP" end
+    if rp then return "Roleplay" end
+    if pvp then return "PvP" end
+    return "Normal"
 end
 
 function Crafts.FullName(name, surname)

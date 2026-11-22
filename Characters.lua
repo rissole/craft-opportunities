@@ -2,7 +2,7 @@ local _, Crafts = ...
 
 -- This account's characters, as Craft Opportunities records them itself: who each one is, its professions and their
 -- base skill, and the recipes it knows. Records are keyed by the character's GUID. A name cannot be the key: WoW
--- Forever characters on one realm can share a first name and differ only by surname.
+-- Forever characters can share a first name and differ only by surname.
 --
 -- A character's learned recipes come only from that character, while it is logged in:
 --   * its spellbook, read at login and whenever its skills or spells change, adds what it knows of each profession;
@@ -16,7 +16,7 @@ local GUID_PATTERN = "^Player%-"
 
 -- Saved records ------------------------------------------------------------------------------------------------------
 
--- [GUID] = {name, surname, realm, faction, updated, professions = {[skillLine] = {base, scanned, name}},
+-- [GUID] = {name, surname, ruleset, faction, updated, professions = {[skillLine] = {base, scanned, name}},
 --           known = {[recipeID] = the skill line it was recorded under}}
 function Crafts:ValidateCharacters(saved)
     for key, record in pairs(saved.characters) do
@@ -24,6 +24,9 @@ function Crafts:ValidateCharacters(saved)
             or type(record.name) ~= "string" or record.name == "" then
             saved.characters[key] = nil
         else
+            -- Records before 3.3.2 held a realm name, which WoW Forever no longer has; the ruleset replaces it.
+            record.realm = nil
+            if record.ruleset ~= nil and type(record.ruleset) ~= "string" then record.ruleset = nil end
             if type(record.professions) ~= "table" then record.professions = {} end
             if type(record.known) ~= "table" then record.known = {} end
             if record.surname ~= nil and (type(record.surname) ~= "string" or record.surname == "") then
@@ -47,22 +50,16 @@ end
 
 -- This character -----------------------------------------------------------------------------------------------------
 
--- This character's realm in the client's normalized form (no spaces or hyphens).
-local function NormalizedRealm()
-    local realm = GetNormalizedRealmName and GetNormalizedRealmName()
-    if not realm or realm == "" then realm = ((GetRealmName() or ""):gsub("[%s%-]", "")) end
-    return realm ~= "" and realm or nil
-end
-
--- This character's GUID (its record's key), first name, normalized realm and English faction group. Nil while the
--- client has no GUID, name or realm for it yet.
+-- This character's GUID (its record's key), first name, ruleset (Crafts.Ruleset) and English faction group. Nil while
+-- the client has no GUID or name for it yet. WoW Forever has no realms: its auction houses are one per ruleset and
+-- faction.
 function Crafts.CurrentCharacter()
-    local key, name, realm = UnitGUID("player"), UnitName("player"), NormalizedRealm()
+    local key, name = UnitGUID("player"), UnitName("player")
     if issecretvalue and (issecretvalue(key) or issecretvalue(name)) then return nil end
-    if type(key) ~= "string" or not key:find(GUID_PATTERN) or type(name) ~= "string" or name == "" or not realm then
+    if type(key) ~= "string" or not key:find(GUID_PATTERN) or type(name) ~= "string" or name == "" then
         return nil
     end
-    return key, name, realm, UnitFactionGroup("player")
+    return key, name, Crafts.Ruleset(), UnitFactionGroup("player")
 end
 
 local function IsSpellKnown(recipeID)
@@ -93,17 +90,17 @@ end
 
 -- This character's record, made on first use. Nil until the client knows who it is.
 local function CurrentRecord(self)
-    local key, name, realm, faction = Crafts.CurrentCharacter()
+    local key, name, ruleset, faction = Crafts.CurrentCharacter()
     if not (key and self.saved) then return nil, false end
-    self.current = {key = key, realm = realm, faction = faction}
+    self.current = {key = key, ruleset = ruleset, faction = faction}
     local record, changed = self.saved.characters[key], false
     if not record then
         record = {professions = {}, known = {}}
         self.saved.characters[key] = record
         changed = true
     end
-    if record.name ~= name or record.realm ~= realm or record.faction ~= faction then
-        record.name, record.realm, record.faction, changed = name, realm, faction, true
+    if record.name ~= name or record.ruleset ~= ruleset or record.faction ~= faction then
+        record.name, record.ruleset, record.faction, changed = name, ruleset, faction, true
     end
     local surname = Crafts.CurrentSurname()
     if surname and record.surname ~= surname then record.surname, changed = surname, true end
@@ -136,7 +133,7 @@ local function ReadSpellbook(record, professions)
     return changed
 end
 
--- Records this character's name, realm, faction, surname, profession base levels and what its spellbook knows. A
+-- Records this character's name, ruleset, faction, surname, profession base levels and what its spellbook knows. A
 -- profession the client no longer lists is dropped, with its recipes and scan time. An empty list is what the client
 -- answers early in login, so it changes nothing. Returns true when something Craft Opportunities reads moved.
 function Crafts:UpdateCharacter()
@@ -312,25 +309,32 @@ end)
 -- Compared characters ------------------------------------------------------------------------------------------------
 
 -- The characters to compare, as transient descriptors (rebuilt for each calculation, never saved):
--- {key, name (first name), fullName (with the surname once recorded), realm, faction, current, elsewhere,
--- professions ([skillLine] = {base, scanned}) and known ([recipeID] = skillLine), both the saved tables themselves
--- and read only, updated}. A character with no recorded profession is not compared. Outside "all", only this realm and faction; a character whose faction
--- was never recorded stays in, marked.
+-- {key, name (first name), fullName (with the surname once recorded), ruleset, faction, current, elsewhere, market
+-- (for a character elsewhere, its ruleset when that differs, else its faction), professions ([skillLine] = {base,
+-- scanned}) and known ([recipeID] = skillLine), both the saved tables themselves and read only, updated}. A character
+-- with no recorded profession is not compared. Outside "all", only this ruleset and faction; a character whose
+-- ruleset or faction was never recorded stays in.
 function Crafts:Crafters()
     local saved, current = self.saved, self.current
     local crafters = {}
     for key, record in pairs(saved.characters) do
-        local here = current ~= nil and record.realm == current.realm
+        local here = current ~= nil
+            and (record.ruleset == nil or record.ruleset == current.ruleset)
             and (record.faction == nil or record.faction == current.faction)
         if next(record.professions) and (saved.market == "all" or here or not current) then
+            local market
+            if current ~= nil and not here then
+                market = record.ruleset ~= current.ruleset and record.ruleset or record.faction
+            end
             crafters[#crafters + 1] = {
                 key = key,
                 name = record.name,
                 fullName = Crafts.FullName(record.name, record.surname),
-                realm = record.realm,
+                ruleset = record.ruleset,
                 faction = record.faction,
                 current = current ~= nil and key == current.key,
                 elsewhere = current ~= nil and not here,
+                market = market,
                 professions = record.professions,
                 known = record.known,
                 updated = record.updated,
@@ -340,7 +344,7 @@ function Crafts:Crafters()
     table.sort(crafters, function(a, b)
         if a.current ~= b.current then return a.current end
         if a.fullName ~= b.fullName then return a.fullName < b.fullName end
-        if (a.realm or "") ~= (b.realm or "") then return (a.realm or "") < (b.realm or "") end
+        if (a.ruleset or "") ~= (b.ruleset or "") then return (a.ruleset or "") < (b.ruleset or "") end
         return a.key < b.key
     end)
     return crafters
@@ -359,10 +363,8 @@ function Crafts:Freshness(crafter, skillLine)
     if not crafter.current and crafter.updated then
         text = text .. " Skill recorded " .. Crafts.Ago(crafter.updated) .. "."
     end
-    if crafter.faction == nil then
-        text = text .. " Faction not recorded yet."
-    elseif crafter.elsewhere then
-        text = text .. " Other realm or faction: priced at this character's market."
+    if crafter.elsewhere then
+        text = text .. " Other ruleset or faction: priced at this character's market."
     end
     return text
 end

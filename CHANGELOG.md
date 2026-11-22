@@ -1,5 +1,13 @@
 # Craft Opportunities
 
+## 3.3.2
+
+- Fixed: since a recent client update no character was recorded, so the window stayed empty. WoW Forever has no realm
+  names any more; characters are now grouped by ruleset and faction, as its auction houses are. Older records update
+  on each character's next login.
+- The market filter now reads **This ruleset and faction**.
+- The Pricing panel no longer shows the note about auction house cuts with TSM.
+
 ## 3.3.1
 
 - Recommendations now show as cards above the list, each with an **Install** button: Auctionator when neither it nor

@@ -75,8 +75,8 @@ An unknown requirement is never treated as 0.
 
 ### Characters and markets
 
-By default only characters on the current character's realm and faction are compared, because auction prices are
-that market's. **Pricing > All recorded characters** includes the rest, still priced at the current market.
+By default only characters on the current character's ruleset and faction are compared, because each has its own
+auction house. **Pricing > All recorded characters** includes the rest, still priced at the current market.
 Characters show by their full name, surname included.
 
 ## Pricing
@@ -120,7 +120,7 @@ window has no sales column or filter.
 ## Storage
 
 Craft Opportunities saves only its settings and a record for each character in `CraftOpportunitiesDB`, keyed by the
-character's GUID: name, surname, realm, faction, profession levels and names, the recipes it knows, and when each
+character's GUID: name, surname, ruleset, faction, profession levels and names, the recipes it knows, and when each
 profession window was last fully recorded. Recipe data stays in SkillUp Forever or the game, and prices and sales data
 in TSM or Auctionator.
 

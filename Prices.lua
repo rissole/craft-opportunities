@@ -128,17 +128,7 @@ end
 -- This character's key and faction-realm as TSM writes them in an operation's ignore lists: "Name - Horde - Normal"
 -- and "Horde - Normal", where the realm is the realm's ruleset, not its name.
 local function TSMPlayerKeys()
-    local ruleset = GetRealmName()
-    local rules = C_GameRules
-    if rules and type(rules.IsGameRuleActive) == "function" and Enum and Enum.GameRule then
-        local function active(rule) return rule ~= nil and rules.IsGameRuleActive(rule) end
-        local rp, pvp = active(Enum.GameRule.RPRuleset), active(Enum.GameRule.PvPRuleset)
-        if active(Enum.GameRule.HardcoreRuleset) then ruleset = "Hardcore"
-        elseif rp and pvp then ruleset = "Roleplay PvP"
-        elseif rp then ruleset = "Roleplay"
-        elseif pvp then ruleset = "PvP"
-        else ruleset = "Normal" end
-    end
+    local ruleset = Crafts.Ruleset() or GetRealmName()
     local factionrealm = (UnitFactionGroup("player") or "") .. " - " .. (ruleset or "")
     return (UnitName("player") or "") .. " - " .. factionrealm, factionrealm
 end
@@ -253,8 +243,7 @@ function TSM:Problem()
 end
 
 function TSM:Note()
-    return "As in TSM, a sale price takes no auction house cut of its own: include it, e.g. "
-        .. "max(AtrValue * 0.95, VendorSell)."
+    return nil
 end
 
 -- Without TradeSkillMaster ------------------------------------------------------------------------------------
