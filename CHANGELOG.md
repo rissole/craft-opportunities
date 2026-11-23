@@ -1,5 +1,10 @@
 # Craft Opportunities
 
+## 3.3.3
+
+- With TSM, the **Sales** filter is off while **Sell to a vendor (VendorSell)** is ticked under Pricing. Its settings
+  are kept for when it is unticked.
+
 ## 3.3.2
 
 - Fixed: since a recent client update no character was recorded, so the window stayed empty. WoW Forever has no realm

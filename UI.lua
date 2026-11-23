@@ -479,8 +479,8 @@ end
 -- Two sliders in the Sales flyout: a minimum sold per day (Market.SOLD_STEPS) and a minimum sale rate. The list
 -- redraws as they move, and the flyout shows how many recipes are left.
 
--- The flyout's slider frame, once it has been opened.
-local salesPanel
+-- The flyout's slider frame, once it has been opened, and the flyout.
+local salesPanel, salesFlyout
 
 local function SoldLabel(value)
     if value <= 0 then return "Any" end
@@ -494,6 +494,12 @@ local function RateLabel(rate)
     return RateText(rate) .. "+ (<=" .. math.floor(1 / rate + 0.5) .. " posts per sale)"
 end
 
+-- Whether the Sales filter applies: not while sales are valued at VendorSell (TSM's Sell to a vendor), when the
+-- button is disabled and its minimums are kept for later.
+local function SalesApply()
+    return not Crafts.saved.saleVendor
+end
+
 -- The closed dropdown's text: "Any sales", "Has sold", "1+/day", "20%+ sell" or "1+/day, 20%+".
 local function SalesText()
     local sold, rate = Crafts.saved.salesMinSold, Crafts.saved.salesMinRate
@@ -505,6 +511,8 @@ end
 
 local function UpdateSalesText()
     SetClosedText(dropdowns.sales, SalesText())
+    dropdowns.sales:SetEnabled(SalesApply())
+    if not SalesApply() and salesFlyout then salesFlyout:Hide() end
 end
 
 local function UpdateSalesPanel()
@@ -588,7 +596,6 @@ end
 -- The sliders live in a flyout of our own under the button, not in a Blizzard menu: the menu system did not show
 -- them. A click on the button toggles it; a click anywhere else, or closing the window, hides it.
 local SALES_PANEL_WIDTH, SALES_PANEL_HEIGHT, SALES_PANEL_INSET = 250, 112, 6
-local salesFlyout
 
 local function SyncSalesSliders()
     if not (salesPanel and salesPanel.Sold) then return end
@@ -661,6 +668,15 @@ local function SalesButton(parent)
     function dropdown:CloseMenu()
         if salesFlyout then salesFlyout:Hide() end
     end
+    -- Disabled, it says why.
+    dropdown:SetMotionScriptsWhileDisabled(true)
+    dropdown:HookScript("OnEnter", function(self)
+        if self:IsEnabled() then return end
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Off while pricing is set to vendor sell", 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    dropdown:HookScript("OnLeave", function() GameTooltip:Hide() end)
     return dropdown
 end
 
@@ -1270,8 +1286,8 @@ local function CurrentFilter()
         hiddenItemClasses = settings.hiddenItemClasses, availability = settings.availability, search = searchText,
         profitableOnly = settings.profitableOnly, sort = SortKey(),
         -- Without sales data no row could pass a minimum, so the filter waits for data.
-        minSold = salesColumn and settings.salesMinSold or 0,
-        minSaleRate = salesColumn and settings.salesMinRate or 0}
+        minSold = salesColumn and SalesApply() and settings.salesMinSold or 0,
+        minSaleRate = salesColumn and SalesApply() and settings.salesMinRate or 0}
 end
 
 local function RebuildView()
@@ -1464,6 +1480,7 @@ local function ToggleSaleVendor()
     if pricing.SaleVendor:GetChecked() then pricing.saleText = pricing.Sale:GetText():match("^%s*(.-)%s*$") end
     Crafts.saved.saleVendor = pricing.SaleVendor:GetChecked() and true or false
     ShowSaleField()
+    if dropdowns.sales then UpdateSalesText() end
     Start(true)
 end
 
