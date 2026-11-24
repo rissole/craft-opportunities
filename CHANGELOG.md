@@ -1,5 +1,9 @@
 # Craft Opportunities
 
+## 3.4.0
+
+- New **Time** column: each recipe's cast time.
+
 ## 3.3.3
 
 - With TSM, the **Sales** filter is off while **Sell to a vendor (VendorSell)** is ticked under Pricing. Its settings

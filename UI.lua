@@ -9,8 +9,8 @@ local Market = Crafts.Market
 local FRAME_NAME = "CraftOpportunitiesFrame"
 local ROW_TEMPLATE = "CraftOpportunityRowTemplate"
 local HEIGHT, DETAILS_WIDTH = 620, 330
--- Money columns, then the narrower return and sales columns at the right.
-local ROW_HEIGHT, COLUMN, RETURN_COLUMN, SALES_COLUMN, SCROLL_BAR = 38, 86, 56, 56, 20
+-- Money columns, then the narrower return and sales columns at the right, and the cast time at the left.
+local ROW_HEIGHT, COLUMN, RETURN_COLUMN, SALES_COLUMN, TIME_COLUMN, SCROLL_BAR = 38, 86, 56, 56, 44, 20
 -- The sales filter's dropdown and the gap before it.
 local SALES_FILTER, SALES_GAP = 130, 8
 
@@ -22,8 +22,8 @@ local function Layout()
     salesFilter = salesColumn
     WIDTH = 1016 + (salesFilter and SALES_FILTER + SALES_GAP or 0)
     LIST_WIDTH = WIDTH - 20 - DETAILS_WIDTH - 6
-    NAME_WIDTH = LIST_WIDTH - 4 - SCROLL_BAR - 41 - 3 * COLUMN - RETURN_COLUMN - (salesColumn and SALES_COLUMN or 0)
-        - 10
+    NAME_WIDTH = LIST_WIDTH - 4 - SCROLL_BAR - 41 - 3 * COLUMN - RETURN_COLUMN - TIME_COLUMN
+        - (salesColumn and SALES_COLUMN or 0) - 10
 end
 local DETAIL_WIDTH = DETAILS_WIDTH - 8 - 26 - 4
 -- A calculation runs up to BUDGET_MS of each frame. Prices are kept for CACHE_SECONDS, also while the window is
@@ -116,6 +116,23 @@ end
 -- The profit as a percentage of the material cost: a 2.00x return is +100%.
 local function ProfitPercent(ratio)
     return string.format("%+.0f%%", (ratio - 1) * 100)
+end
+
+-- A recipe's cast time: "3s", "1.5s", "Instant"; "-" when the client has none.
+local castTimes = {}
+local function CastTimeText(recipeID)
+    local text = castTimes[recipeID]
+    if text then return text end
+    local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(recipeID)
+    local ms = type(info) == "table" and info.castTime
+    if type(ms) ~= "number" then return "-" end
+    if ms <= 0 then
+        text = "Instant"
+    else
+        text = string.format("%.1f", ms / 1000):gsub("%.0$", "") .. "s"
+    end
+    castTimes[recipeID] = text
+    return text
 end
 
 -- Sold per day: "none" (TSM has no record), "0", "<0.1", "1.4", "27", "7,130". The colours are fixed
@@ -1184,6 +1201,7 @@ local function BuildRow(row)
     row.Proceeds = Cell(row, x - RETURN_COLUMN - COLUMN)
     if salesColumn then row.ProceedsFlag = Flag(row, x - RETURN_COLUMN - COLUMN) end
     row.Cost = Cell(row, x - RETURN_COLUMN - 2 * COLUMN)
+    row.Time = Cell(row, x - RETURN_COLUMN - 3 * COLUMN, TIME_COLUMN)
     row:RegisterForClicks("LeftButtonUp")
     row:SetScript("OnClick", OnRowClick)
     row:SetScript("OnEnter", OnRowEnter)
@@ -1206,6 +1224,7 @@ local function InitRow(row, data)
         or ("|cff999999" .. (Calc.ISSUE_TEXT[data.issue] or "-") .. "|r"))
     row.Profit:SetText(Signed(data.profit, true))
     row.Return:SetText(Multiple(data.ratio))
+    row.Time:SetText(CastTimeText(data.id))
     if row.Sold then
         row.Sold:SetText(outputID and SoldText(data.sold) or "-")
         local rate = data.saleRate
@@ -1928,6 +1947,7 @@ local function Create()
         {"Est. profit", COLUMN, "profit", "Sort by estimated profit: sale proceeds less material cost, highest first."},
         {"Est. proceeds", COLUMN},
         {"Materials", COLUMN},
+        {"Time", TIME_COLUMN},
     }
     if salesColumn then
         table.insert(columns, 1, {"Sold/day", SALES_COLUMN, "sold", "Sort by sold per day (TSM region), highest "

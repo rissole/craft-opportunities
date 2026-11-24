@@ -28,6 +28,7 @@ Open the window with `/craftops` or `/cops`, or from the minimap's addon compart
 
 | Column | Meaning |
 | --- | --- |
+| Time | one craft's cast time |
 | Materials | the cost of one craft's materials |
 | Est. proceeds | sale price x mean yield per craft |
 | Est. profit | proceeds - materials |
