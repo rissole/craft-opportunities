@@ -942,8 +942,8 @@ local function FindRow(recipeID)
     end
 end
 
--- The recipe item and where it comes from, as SkillUp's catalogue has it (RecipeSources, when SkillUp has it): vendors this
--- character can deal with first, then quests, named drops with their chance, and world drops. Another faction's
+-- The recipe item and where it comes from, as the catalogue has it (RecipeSources, when it has them): vendors this
+-- character can deal with first, then quests, named drops with their chance when known, world drops and containers. Another faction's
 -- vendor or quest is red, as in SkillUp's tooltips. Every line takes Ctrl-click for its Wowhead page.
 local VENDORS_SHOWN = 3
 local OTHER_SIDE = {1, 0.31, 0.31}
@@ -984,10 +984,12 @@ local function RecipeItemDetails(recipeID, recipeItem)
         AddSource("Quest: " .. quest.title, quest, "quest", quest.questID)
     end
     for _, drop in ipairs(found.drops) do
-        AddSource("Dropped by " .. drop.name .. " (" .. Number(drop.chance) .. "%)", drop, "npc", drop.npcID)
+        local chance = drop.chance and " (" .. Number(drop.chance) .. "%)" or ""
+        AddSource("Dropped by " .. drop.name .. chance, drop, "npc", drop.npcID)
     end
     if found.world then AddDetail("source", "World drop") end
-    if #found.vendors + #found.quests + #found.drops == 0 and not found.world then
+    if found.containers then AddDetail("source", "Found in containers") end
+    if #found.vendors + #found.quests + #found.drops == 0 and not (found.world or found.containers) then
         AddDetail("place", "Where it comes from is not known.")
     end
 end
@@ -1038,7 +1040,7 @@ local function RenderDetails()
     local skill, source, recipeItem, fee = reader.RecipeRequirement(recipeID)
     AddDetail("pair", "Item type", outputID and ItemTypeText(outputID, row.itemClass) or ItemClassName(row.itemClass))
     AddDetail("pair", "Profession", ProfessionName(skillLine))
-    -- Learn requirements and recipe sources come only with SkillUp.
+    -- Learn requirements and recipe sources come only with a catalogue (SkillUp or Crafter's Journal).
     if reader.learning then
         local where = source == "trainer" and "trainer" or (source == "item" and "recipe item" or "source unknown")
         AddDetail("pair", "Required skill", (skill and tostring(skill) or "Unknown") .. " (" .. where .. ")")
@@ -1514,7 +1516,7 @@ local SUGGESTIONS = {
     {name = "SkillUp Forever", slug = "skillup-forever", icon = "Interface\\Icons\\INV_Scroll_03", dismissable = true,
         headline = "Find recipes worth learning", line = "SkillUp Forever adds learnable recipes and where to get them.",
         text = "Adds the recipes your characters could learn, with the skill each needs and where to get it.",
-        wanted = function() return not Crafts.HasSkillUp() end},
+        wanted = function() return not Crafts.HasCatalogue() end},
 }
 
 local function Dismissed(suggestion)
@@ -1875,10 +1877,10 @@ local function Create()
     dropdowns.itemClass = Dropdown(frame, 150, ItemClassMenu, StepItemClasses)
     dropdowns.itemClass:SetPoint("LEFT", dropdowns.profession, "RIGHT", 8, 0)
     UpdateItemClassesText()
-    -- Left to right: who and what, whether it can be made (with SkillUp, which knows the recipes not yet learned),
+    -- Left to right: who and what, whether it can be made (with a catalogue, which knows the recipes not yet learned),
     -- whether it is worth making (Sales with TSM, then Profitable only), and the search at the right end.
     local beforeProfitable = dropdowns.itemClass
-    if Crafts.HasSkillUp() then
+    if Crafts.HasCatalogue() then
         dropdowns.availability = Dropdown(frame, 180, function(root)
             local get = function() return Crafts.saved.availability end
             local set = function(value) Crafts.saved.availability, viewAt = value, 0 end

@@ -1,8 +1,8 @@
 local addonName, Crafts = ...
 
 -- Craft Opportunities: profitable crafts across this account's characters. Recipes and requirements come from
--- SkillUp Forever's addon API (SkillUp.lua) when it is installed, else only the recorded recipes, read from the client
--- (Client.lua); each character's professions and learned recipes are recorded here (Characters.lua). Prices come
+-- SkillUp Forever's addon API (SkillUp.lua) when it is installed, else Crafter's Journal's tables (CraftersJournal.lua),
+-- else only the recorded recipes, read from the client (Client.lua); each character's professions and learned recipes are recorded here (Characters.lua). Prices come
 -- from TradeSkillMaster when it is installed, else from Auctionator and vendors (Prices.lua). Only settings and those character records are saved.
 -- The addon table is Crafts itself; Init.lua, loaded last, runs its lifecycle.
 Crafts.name = addonName
@@ -139,11 +139,21 @@ function Crafts.HasSkillUp()
     return loaded and true or false
 end
 
--- The recipe reader and a status: "ok" with SkillUp Forever's reader (SkillUp.lua), or with the client's (Client.lua)
--- when SkillUp is not loaded; otherwise nil and why not ("skillupBroken", "old", "loading"), each with the message the
--- window shows.
+-- Whether a recipe catalogue is loaded: SkillUp Forever, else Crafter's Journal. With one, the recipes not yet learned
+-- are compared too.
+function Crafts.HasCatalogue()
+    return Crafts.HasSkillUp() or Crafts.CraftersJournal.Open() ~= nil
+end
+
+-- Without SkillUp: Crafter's Journal's reader (CraftersJournal.lua) when it can answer, else the client's (Client.lua).
+function Crafts:Fallback()
+    return self.CraftersJournal.Open() or self.Client.Open()
+end
+
+-- The recipe reader and a status: "ok" with SkillUp Forever's reader (SkillUp.lua), or the fallback's when SkillUp is
+-- not loaded; otherwise nil and why not ("skillupBroken", "old", "loading"), each with the message the window shows.
 function Crafts:Dependencies()
-    if not Crafts.HasSkillUp() then return self.Client.Open(), "ok" end
+    if not Crafts.HasSkillUp() then return self:Fallback(), "ok" end
     local reader, reason = self.SkillUp.Open()
     if reader then
         -- Prices never stop it: without TSM it prices with Auctionator, and without Auctionator either, on vendor
@@ -164,7 +174,7 @@ end
 
 -- The reader, only when it can answer.
 function Crafts:Source()
-    if not Crafts.HasSkillUp() then return self.Client.Open() end
+    if not Crafts.HasSkillUp() then return self:Fallback() end
     return (self.SkillUp.Open())
 end
 

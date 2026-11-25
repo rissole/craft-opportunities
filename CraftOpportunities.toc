@@ -7,7 +7,7 @@
 ## X-Website: https://github.com/rissole/craft-opportunities
 ## X-License: MIT
 ## X-Curse-Project-ID: 1810012
-## OptionalDeps: SkillUpForever, TradeSkillMaster, Auctionator
+## OptionalDeps: SkillUpForever, CraftersJournal, TradeSkillMaster, Auctionator
 ## SavedVariables: CraftOpportunitiesDB
 ## IconTexture: Interface\Icons\INV_Misc_Coin_02
 ## AddonCompartmentFunc: CraftOpportunities_OnAddonCompartmentClick
@@ -16,6 +16,7 @@ Crafts.xml
 Crafts.lua
 SkillUp.lua
 Client.lua
+CraftersJournal.lua
 Characters.lua
 Prices.lua
 Market.lua

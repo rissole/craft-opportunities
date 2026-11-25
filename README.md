@@ -1,7 +1,7 @@
 # Craft Opportunities
 
 Craft Opportunities is a WoW Forever addon that shows which crafts make a profit across all of your characters. It
-covers the recipes each character knows and, with SkillUp Forever, the recipes it has the skill to learn. For each one
+covers the recipes each character knows and, with SkillUp Forever or Crafter's Journal, the recipes it has the skill to learn. For each one
 it lists material cost, estimated sale proceeds, profit and return on materials.
 
 Craft Opportunities records each character's professions and learned recipes itself, and reads their materials and
@@ -14,13 +14,14 @@ products from the game. Prices come from TradeSkillMaster or Auctionator.
   at merchants. With neither, only what a vendor pays for a product is known, so most profits are missing.
 - **SkillUp Forever v1.12.0 or later** (optional) adds the recipes your characters could learn, with their learn
   requirements and where the recipe comes from. It needs **ForeverCore**.
+- **Crafter's Journal** (optional) does the same when SkillUp Forever is not installed.
 
 ## Install
 
 1. Extract the `CraftOpportunities` folder into `World of Warcraft\_forever_\Interface\AddOns`.
 2. Restart the game. A `/reload` does not pick up a new addon.
 3. Log in on each character once and open each of its profession windows. Craft Opportunities records its
-   professions, their levels and the recipes it knows. With SkillUp Forever it also reads the spellbook at login.
+   professions, their levels and the recipes it knows. With SkillUp Forever or Crafter's Journal it also reads the spellbook at login.
 
 ## Use
 
@@ -48,7 +49,7 @@ Filters:
   Consumable, Trade Goods and so on), with *Select all* and *Select none*. Each shows how many recipes it holds under
   the other filters. Gear rarely sells at the price it is listed for: untick Weapon and Armor to hide it, and the
   filter reads *No gear*.
-- **Availability** (SkillUp Forever): *Known or can learn* (the default), known only, can learn only, also higher skill needed, or
+- **Availability** (SkillUp Forever or Crafter's Journal): *Known or can learn* (the default), known only, can learn only, also higher skill needed, or
   everything.
 - **Sales** (TSM): sliders for a minimum sold per day (has sold, 0.25 up to 100) and sale rate (5% to 60%); the menu
   shows how many recipes are left. [Sales data](#sales-data).
@@ -56,8 +57,8 @@ Filters:
 - **Search** (right end): the recipe name or the product's name.
 
 Select a row for details: the product, its item type and mean yield, each character's state, every material with its
-unit price and source, and the sale assumptions. With SkillUp Forever they also show the required skill and where the
-recipe is learned, and when SkillUp knows where a recipe item comes from, its vendors, quests and drops.
+unit price and source, and the sale assumptions. With SkillUp Forever or Crafter's Journal they also show the required skill and where
+the recipe is learned, and when it knows where a recipe item comes from, its vendors, quests and drops.
 
 Hover a row for the product's tooltip, and Shift-click it to link it in chat. Ctrl-click (Cmd-click on a Mac) a row,
 item, vendor, quest or NPC to get its Wowhead address. The game cannot open a browser, so the address shows in a
@@ -107,7 +108,7 @@ Recipes that make no item, or whose product is bind on pickup or a quest item, a
 counts them.
 
 Not counted: recipe and training costs, auction deposits and relisting, undercutting, and time to sell. Yields are
-SkillUp's mean yield, or without SkillUp the middle of the game's range.
+SkillUp's or Crafter's Journal's yield, or without either the middle of the game's range.
 
 ## Sales data
 
@@ -122,7 +123,7 @@ window has no sales column or filter.
 
 Craft Opportunities saves only its settings and a record for each character in `CraftOpportunitiesDB`, keyed by the
 character's GUID: name, surname, ruleset, faction, profession levels and names, the recipes it knows, and when each
-profession window was last fully recorded. Recipe data stays in SkillUp Forever or the game, and prices and sales data
+profession window was last fully recorded. Recipe data stays in SkillUp Forever, Crafter's Journal or the game, and prices and sales data
 in TSM or Auctionator.
 
 The calculation runs a few milliseconds per frame, pauses in combat, and releases everything when the window closes.

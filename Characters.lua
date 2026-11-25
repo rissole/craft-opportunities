@@ -9,7 +9,8 @@ local _, Crafts = ...
 --   * a complete scan of one of its own profession windows replaces that profession's recipes;
 --   * a recipe it learns (NEW_RECIPE_LEARNED) is added straight away.
 -- A dropped profession takes its recipes with it. The spellbook is checked against SkillUp Forever's recipe lists
--- (SkillUp.lua), or without SkillUp against the recipes other characters have recorded (Client.lua).
+-- (SkillUp.lua), else Crafter's Journal's (CraftersJournal.lua), else the recipes other characters have recorded
+-- (Client.lua).
 
 -- A player GUID, "Player-<server>-<id>". Records saved before 3.0.0 were keyed "Name-Realm" and are dropped.
 local GUID_PATTERN = "^Player%-"

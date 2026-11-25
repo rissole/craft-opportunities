@@ -7,6 +7,7 @@ manual-changelog:
 # CurseForge relations, by project slug.
 optional-dependencies:
   - skillup-forever
+  - crafters-journal
   - tradeskill-master
   - auctionator
 

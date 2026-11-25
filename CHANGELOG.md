@@ -1,5 +1,11 @@
 # Craft Opportunities
 
+## 3.4.1
+
+- **Crafter's Journal** now works in place of SkillUp Forever: with either one, the window adds the recipes your
+  characters could learn, the skill each needs and where to get it. SkillUp Forever is used when both are installed.
+- Recipe sources can show **Found in containers**.
+
 ## 3.4.0
 
 - New **Time** column: each recipe's cast time.
